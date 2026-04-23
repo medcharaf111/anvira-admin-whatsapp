@@ -1,9 +1,11 @@
 'use client';
 import { useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Send, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export function ReplyBox({ conversationId }: { conversationId: string }) {
+  const router = useRouter();
   const [value, setValue] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +30,9 @@ export function ReplyBox({ conversationId }: { conversationId: string }) {
       }
       setValue('');
       ref.current?.focus();
+      // Refresh server data so the new message appears even if
+      // realtime subscription isn't firing
+      router.refresh();
     } catch (err: any) {
       setError(err?.message ?? 'send_failed');
     } finally {

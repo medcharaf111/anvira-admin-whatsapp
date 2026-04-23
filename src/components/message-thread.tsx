@@ -21,6 +21,19 @@ export function MessageThread({
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Re-sync when the server re-fetches (after router.refresh() from reply).
+  // Merge to preserve any message IDs we already have from realtime.
+  useEffect(() => {
+    setMessages((prev) => {
+      const byId = new Map<string, Msg>();
+      for (const m of prev) byId.set(m.id, m);
+      for (const m of initialMessages) byId.set(m.id, m);
+      return Array.from(byId.values()).sort((a, b) =>
+        a.created_at.localeCompare(b.created_at)
+      );
+    });
+  }, [initialMessages]);
+
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
