@@ -7,7 +7,7 @@ interface Msg {
   id: string;
   body: string;
   direction: 'inbound' | 'outbound';
-  sender: string;
+  sender: 'customer' | 'bot' | 'operator' | string;
   created_at: string;
 }
 
@@ -99,13 +99,33 @@ export function MessageThread({
                 animate={{ opacity: 1, y: 0, x: 0 }}
                 exit={{ opacity: 0, transition: { duration: 0.1 } }}
                 transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                className={`flex ${isInbound ? 'justify-start' : 'justify-end'} py-1`}
+                className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'} py-1`}
               >
+                {!isInbound && m.sender === 'operator' && (
+                  <span
+                    className="text-[9px] mb-1 px-1"
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--primary-glow)',
+                      letterSpacing: '0.14em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    · OPERATOR
+                  </span>
+                )}
                 <div
                   className="max-w-[75%] text-sm leading-relaxed px-3.5 py-2.5"
                   style={{
-                    background: isInbound ? 'var(--paper-lift)' : 'color-mix(in srgb, var(--primary) 85%, var(--paper-sink) 15%)',
-                    border: isInbound ? '1px solid var(--rule)' : 'none',
+                    background: isInbound
+                      ? 'var(--paper-lift)'
+                      : m.sender === 'operator'
+                      ? 'var(--paper-lift)'
+                      : 'color-mix(in srgb, var(--primary) 85%, var(--paper-sink) 15%)',
+                    border:
+                      isInbound || m.sender === 'operator'
+                        ? `1px solid ${m.sender === 'operator' ? 'var(--primary-glow)' : 'var(--rule)'}`
+                        : 'none',
                     color: 'var(--ink)',
                     borderRadius: isInbound ? '12px 12px 12px 2px' : '12px 12px 2px 12px',
                   }}
