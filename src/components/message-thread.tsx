@@ -7,7 +7,7 @@ interface Msg {
   id: string;
   body: string;
   direction: 'inbound' | 'outbound';
-  sender: 'customer' | 'bot' | 'operator' | string;
+  sender: 'customer' | 'bot' | 'human' | string;
   created_at: string;
 }
 
@@ -101,7 +101,7 @@ export function MessageThread({
                 transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                 className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'} py-1`}
               >
-                {!isInbound && m.sender === 'operator' && (
+                {!isInbound && m.sender === 'human' && (
                   <span
                     className="text-[9px] mb-1 px-1"
                     style={{
@@ -119,12 +119,12 @@ export function MessageThread({
                   style={{
                     background: isInbound
                       ? 'var(--paper-lift)'
-                      : m.sender === 'operator'
+                      : m.sender === 'human'
                       ? 'var(--paper-lift)'
                       : 'color-mix(in srgb, var(--primary) 85%, var(--paper-sink) 15%)',
                     border:
-                      isInbound || m.sender === 'operator'
-                        ? `1px solid ${m.sender === 'operator' ? 'var(--primary-glow)' : 'var(--rule)'}`
+                      isInbound || m.sender === 'human'
+                        ? `1px solid ${m.sender === 'human' ? 'var(--primary-glow)' : 'var(--rule)'}`
                         : 'none',
                     color: 'var(--ink)',
                     borderRadius: isInbound ? '12px 12px 12px 2px' : '12px 12px 2px 12px',
