@@ -7,6 +7,7 @@ import {
   MessageSquare,
   BookOpen,
   Calendar,
+  CalendarDays,
   Settings,
   Smartphone,
   LogOut,
@@ -23,15 +24,16 @@ const NAV_GROUPS = [
     items: [
       { href: '/conversations', label: 'المحادثات', icon: MessageSquare, num: '01' },
       { href: '/alerts', label: 'التنبيهات', icon: Bell, badgeKey: 'alerts' as const, num: '02' },
-      { href: '/bookings', label: 'المواعيد', icon: Calendar, num: '03' },
+      { href: '/calendar', label: 'التقويم', icon: CalendarDays, num: '03' },
+      { href: '/bookings', label: 'المواعيد', icon: Calendar, num: '04' },
     ],
   },
   {
     label: 'الإعداد',
     items: [
-      { href: '/knowledge-base', label: 'قاعدة المعرفة', icon: BookOpen, num: '04' },
-      { href: '/settings', label: 'الإعدادات', icon: Settings, num: '05' },
-      { href: '/mock-phone', label: 'هاتف التجربة', icon: Smartphone, num: '06' },
+      { href: '/knowledge-base', label: 'قاعدة المعرفة', icon: BookOpen, num: '05' },
+      { href: '/settings', label: 'الإعدادات', icon: Settings, num: '06' },
+      { href: '/mock-phone', label: 'هاتف التجربة', icon: Smartphone, num: '07' },
     ],
   },
 ];
