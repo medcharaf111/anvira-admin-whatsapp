@@ -69,12 +69,16 @@ export function CalendarView() {
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   );
-  const weekEnd = addDays(weekStart, 7);
+
+  // Stable timestamp keys avoid the "new Date every render" infinite-loop trap
+  const weekStartTs = weekStart.getTime();
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
     try {
-      const url = `/api/calendar/events?from=${weekStart.toISOString()}&to=${weekEnd.toISOString()}`;
+      const start = new Date(weekStartTs);
+      const end = addDays(start, 7);
+      const url = `/api/calendar/events?from=${start.toISOString()}&to=${end.toISOString()}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('fetch_failed');
       const data = await res.json();
@@ -85,7 +89,7 @@ export function CalendarView() {
     } finally {
       setLoading(false);
     }
-  }, [weekStart, weekEnd]);
+  }, [weekStartTs]);
 
   useEffect(() => {
     fetchEvents();
