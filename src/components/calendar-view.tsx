@@ -196,12 +196,18 @@ export function CalendarView() {
           })}
         </div>
 
-        {/* Time grid */}
-        <div className="relative" style={{ height: HOURS_VISIBLE.length * HOUR_HEIGHT }}>
-          {/* Hour labels (left column) */}
+        {/* Time grid — single CSS grid keeps time column + days aligned with header */}
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: '60px repeat(7, 1fr)',
+            height: HOURS_VISIBLE.length * HOUR_HEIGHT,
+          }}
+        >
+          {/* Time column */}
           <div
-            className="absolute top-0 bottom-0"
-            style={{ width: 60, borderInlineEnd: '1px solid var(--rule)' }}
+            className="relative"
+            style={{ borderInlineEnd: '1px solid var(--rule)' }}
           >
             {HOURS_VISIBLE.map((h, i) => (
               <div
@@ -220,26 +226,16 @@ export function CalendarView() {
           </div>
 
           {/* Day columns */}
-          <div
-            className="absolute top-0 bottom-0 right-0"
-            style={{ left: 60 }}
-          >
-            <div
-              className="grid h-full relative"
-              style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}
-            >
-              {days.map((day, di) => (
-                <DayColumn
-                  key={di}
-                  day={day}
-                  events={eventsForDay(day)}
-                  onSlotClick={(date) => setCreateSlot(date)}
-                  onEventClick={(ev) => setOpenEvent(ev)}
-                  showLeftBorder={di > 0}
-                />
-              ))}
-            </div>
-          </div>
+          {days.map((day, di) => (
+            <DayColumn
+              key={di}
+              day={day}
+              events={eventsForDay(day)}
+              onSlotClick={(date) => setCreateSlot(date)}
+              onEventClick={(ev) => setOpenEvent(ev)}
+              showLeftBorder={di > 0}
+            />
+          ))}
         </div>
 
         {loading && (
