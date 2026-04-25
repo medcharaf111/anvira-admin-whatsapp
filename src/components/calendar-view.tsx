@@ -382,8 +382,9 @@ function DayColumn({
         const height = Math.max((endHour - startHour) * HOUR_HEIGHT, 24);
         if (top < -HOUR_HEIGHT || top > HOURS_VISIBLE.length * HOUR_HEIGHT) return null;
 
+        // Cancelled bookings are filtered server-side, but stay defensive
+        if (ev.kind === 'booking' && ev.status === 'cancelled') return null;
         const isExternal = ev.kind === 'external';
-        const isCancelled = ev.kind === 'booking' && ev.status === 'cancelled';
 
         return (
           <button
@@ -398,19 +399,10 @@ function DayColumn({
               height,
               background: isExternal
                 ? 'color-mix(in srgb, var(--rule-strong) 60%, var(--paper))'
-                : isCancelled
-                ? 'transparent'
                 : 'color-mix(in srgb, var(--primary) 88%, var(--paper-sink))',
-              border: isCancelled
-                ? '1px dashed var(--rule-strong)'
-                : '1px solid color-mix(in srgb, var(--primary-glow) 50%, transparent)',
-              color: isExternal
-                ? 'var(--ink-soft)'
-                : isCancelled
-                ? 'var(--ink-faint)'
-                : 'var(--ink)',
+              border: '1px solid color-mix(in srgb, var(--primary-glow) 50%, transparent)',
+              color: isExternal ? 'var(--ink-soft)' : 'var(--ink)',
               borderRadius: '3px',
-              textDecoration: isCancelled ? 'line-through' : 'none',
             }}
           >
             <div className="font-semibold truncate">
