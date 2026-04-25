@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ChevronRight, ChevronLeft, Plus, X, Loader2, Trash2,
+  ChevronRight, ChevronLeft, Plus, X, Loader2, Trash2, Wand2,
 } from 'lucide-react';
 
 interface BookingEvent {
@@ -64,6 +64,34 @@ export function CalendarView() {
   const [loading, setLoading] = useState(false);
   const [createSlot, setCreateSlot] = useState<Date | null>(null);
   const [openEvent, setOpenEvent] = useState<CalEvent | null>(null);
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileNote, setReconcileNote] = useState<string | null>(null);
+
+  async function reconcile() {
+    if (reconciling) return;
+    if (!confirm('سيتم حذف أحداث Google Calendar المرتبطة بمواعيد ملغاة. متابعة؟')) return;
+    setReconciling(true);
+    setReconcileNote(null);
+    try {
+      const res = await fetch('/api/calendar/reconcile', { method: 'POST' });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? 'reconcile_failed');
+      const { examined, cleaned, failed } = j;
+      setReconcileNote(
+        failed > 0
+          ? `فحص ${examined} · حُذف ${cleaned} · فشل ${failed}`
+          : cleaned > 0
+          ? `حُذف ${cleaned} حدث متبقٍّ من Google Calendar`
+          : 'لا أحداث متبقّية. الجدول نظيف.'
+      );
+      fetchEvents();
+    } catch (err: any) {
+      setReconcileNote(`خطأ: ${err?.message ?? 'reconcile_failed'}`);
+    } finally {
+      setReconciling(false);
+      setTimeout(() => setReconcileNote(null), 6000);
+    }
+  }
 
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -138,19 +166,49 @@ export function CalendarView() {
           {addDays(weekStart, 6).toLocaleDateString('ar-AE', { day: 'numeric', month: 'long', year: 'numeric' })}
         </div>
 
-        <button
-          onClick={() => {
-            const now = new Date();
-            now.setMinutes(0, 0, 0);
-            now.setHours(now.getHours() + 1);
-            setCreateSlot(now);
-          }}
-          className="btn-primary h-9 gap-2 text-xs"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>موعد جديد</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={reconcile}
+            disabled={reconciling}
+            className="btn-ghost h-9 gap-2 text-xs"
+            title="حذف أحداث Google Calendar المرتبطة بمواعيد ملغاة"
+          >
+            {reconciling ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Wand2 className="w-3.5 h-3.5" />
+            )}
+            <span>تنظيف الجدول</span>
+          </button>
+          <button
+            onClick={() => {
+              const now = new Date();
+              now.setMinutes(0, 0, 0);
+              now.setHours(now.getHours() + 1);
+              setCreateSlot(now);
+            }}
+            className="btn-primary h-9 gap-2 text-xs"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>موعد جديد</span>
+          </button>
+        </div>
       </div>
+
+      {reconcileNote && (
+        <div
+          className="mb-4 px-4 py-2.5 text-xs"
+          style={{
+            background: 'var(--paper-lift)',
+            border: '1px solid var(--rule)',
+            color: 'var(--ink)',
+            borderRadius: '3px',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {reconcileNote}
+        </div>
+      )}
 
       {/* Week grid */}
       <div className="relative" style={{ border: '1px solid var(--rule)', borderRadius: '3px' }}>
@@ -538,10 +596,19 @@ function EventDetailModal({
       const res = await fetch(`/api/calendar/bookings/${event.id}`, {
         method: 'DELETE',
       });
-      if (!res.ok) throw new Error('delete_failed');
+      const j = await res.json().catch(() => ({}));
+      // 207 = booking cancelled but Google Calendar event couldn't be deleted
+      if (res.status === 207 || j.warning === 'calendar_delete_failed') {
+        alert(
+          'تم إلغاء الموعد لكن لم نتمكن من حذف الحدث من Google Calendar.\nاضغط "تنظيف الجدول" لإعادة المحاولة.'
+        );
+        onDeleted();
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? 'delete_failed');
       onDeleted();
-    } catch (err) {
-      alert('فشل الحذف');
+    } catch (err: any) {
+      alert(`فشل الحذف: ${err?.message ?? 'unknown'}`);
     } finally {
       setDeleting(false);
     }
