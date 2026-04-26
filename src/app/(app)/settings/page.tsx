@@ -1,12 +1,18 @@
 import { createClient } from '@/lib/supabase/server';
+import { requireCurrentClient } from '@/lib/client';
 import { SettingsForm } from '@/components/settings-form';
 import { PageHeader } from '@/components/page-header';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
+  const client = await requireCurrentClient();
   const supabase = await createClient();
-  const { data: settings } = await supabase.from('settings').select('*').single();
+  const { data: settings } = await supabase
+    .from('settings')
+    .select('*')
+    .eq('client_id', client.id)
+    .maybeSingle();
 
   return (
     <div>

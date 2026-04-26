@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import { requireCurrentClient } from '@/lib/client';
 import { formatDistanceToNow } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
 import { MessageSquare } from 'lucide-react';
@@ -7,10 +8,12 @@ import { MessageSquare } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function ConversationsPage() {
+  const client = await requireCurrentClient();
   const supabase = await createClient();
   const { data: convos } = await supabase
     .from('conversations')
     .select('id, customer_phone, customer_name, last_message_at, bot_paused, language')
+    .eq('client_id', client.id)
     .order('last_message_at', { ascending: false })
     .limit(50);
 

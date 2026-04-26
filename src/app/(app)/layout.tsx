@@ -2,6 +2,7 @@ import { Sidebar } from '@/components/sidebar';
 import { PageTransition } from '@/components/page-transition';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentClient } from '@/lib/client';
 import { redirect } from 'next/navigation';
 
 export default async function AppLayout({
@@ -15,9 +16,15 @@ export default async function AppLayout({
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
+  const client = await getCurrentClient();
+  // No client linked → first-time setup
+  if (!client) redirect('/onboarding');
+
+  // Alert count scoped to this client (RLS enforces, but we filter explicitly for clarity)
   const { count: alertCount } = await supabase
     .from('handoffs')
     .select('*', { count: 'exact', head: true })
+    .eq('client_id', client.id)
     .eq('resolved', false);
 
   return (
@@ -33,6 +40,17 @@ export default async function AppLayout({
             borderBottom: '1px solid var(--rule)',
           }}
         >
+          <span
+            className="text-[11px] mr-auto"
+            style={{
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--ink-faint)',
+              letterSpacing: '0.08em',
+            }}
+          >
+            {client.name}
+            {client.is_sandbox ? ' · SANDBOX' : ''}
+          </span>
           <ThemeToggle />
         </div>
 

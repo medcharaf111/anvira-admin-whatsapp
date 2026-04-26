@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentClient } from '@/lib/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,9 @@ export async function POST(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  const client = await getCurrentClient();
+  if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   if (!body) {
@@ -26,6 +30,7 @@ export async function POST(req: NextRequest) {
     headers: {
       'Content-Type': 'application/json',
       'X-Internal-Secret': secret,
+      'X-Client-Id': client.id,
     },
     body: JSON.stringify(body),
   });

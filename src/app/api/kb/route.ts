@@ -1,4 +1,5 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { getCurrentClient } from '@/lib/client';
 import { NextResponse } from 'next/server';
 
 export async function PATCH(req: Request) {
@@ -8,21 +9,26 @@ export async function PATCH(req: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'unauth' }, { status: 401 });
 
+  const client = await getCurrentClient();
+  if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
+
   const body = await req.json();
   const svc = createServiceClient();
 
-  // Drop id/updated_at if present — shouldn't be client-editable
-  const { id: _id, updated_at: _ut, ...safe } = body;
+  // Drop fields that shouldn't be client-editable
+  const { id: _id, updated_at: _ut, client_id: _cid, ...safe } = body;
 
-  const { data: row } = await svc.from('knowledge_base').select('id').single();
-  if (!row) return NextResponse.json({ error: 'kb missing' }, { status: 500 });
-
-  const { error } = await svc.from('knowledge_base').update(safe).eq('id', row.id);
+  // Upsert by client_id — works whether the row exists yet or not
+  const { error } = await svc
+    .from('knowledge_base')
+    .upsert({ ...safe, client_id: client.id }, { onConflict: 'client_id' });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Invalidate backend KB cache
-  fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/internal/kb/invalidate`, {
-    method: 'POST',
-  }).catch(() => {});
+  // Invalidate backend KB cache for this tenant
+  fetch(
+    `${process.env.NEXT_PUBLIC_BACKEND_URL}/internal/kb/invalidate?client=${client.id}`,
+    { method: 'POST' }
+  ).catch(() => {});
+
   return NextResponse.json({ ok: true });
 }

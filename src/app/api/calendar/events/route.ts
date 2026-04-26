@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentClient } from '@/lib/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,9 @@ export async function GET(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  const client = await getCurrentClient();
+  if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
 
   const from = req.nextUrl.searchParams.get('from');
   const to = req.nextUrl.searchParams.get('to');
@@ -23,7 +27,12 @@ export async function GET(req: NextRequest) {
   }
 
   const url = `${backend}/internal/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
-  const res = await fetch(url, { headers: { 'X-Internal-Secret': secret } });
+  const res = await fetch(url, {
+    headers: {
+      'X-Internal-Secret': secret,
+      'X-Client-Id': client.id,
+    },
+  });
   const json = await res.json();
   return NextResponse.json(json, { status: res.status });
 }

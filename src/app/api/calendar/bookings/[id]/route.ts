@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentClient } from '@/lib/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,9 @@ export async function DELETE(
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
+  const client = await getCurrentClient();
+  if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
+
   const backend = process.env.NEXT_PUBLIC_BACKEND_URL;
   const secret = process.env.INTERNAL_SHARED_SECRET;
   if (!backend || !secret) {
@@ -22,7 +26,10 @@ export async function DELETE(
 
   const res = await fetch(`${backend}/internal/bookings/${id}`, {
     method: 'DELETE',
-    headers: { 'X-Internal-Secret': secret },
+    headers: {
+      'X-Internal-Secret': secret,
+      'X-Client-Id': client.id,
+    },
   });
   const json = await res.json();
   return NextResponse.json(json, { status: res.status });

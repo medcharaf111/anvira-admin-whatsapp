@@ -1,8 +1,9 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { getCurrentClient } from '@/lib/client';
 import { NextResponse } from 'next/server';
 
 export async function POST(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -12,22 +13,26 @@ export async function POST(
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'unauth' }, { status: 401 });
 
+  const client = await getCurrentClient();
+  if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
+
   const svc = createServiceClient();
 
-  // Mark handoff resolved
+  // Scope to this client
   const { data: handoff } = await svc
     .from('handoffs')
     .update({ resolved: true })
     .eq('id', id)
+    .eq('client_id', client.id)
     .select('conversation_id')
     .single();
 
-  // Also resume the bot on that conversation
   if (handoff) {
     await svc
       .from('conversations')
       .update({ bot_paused: false })
-      .eq('id', handoff.conversation_id);
+      .eq('id', handoff.conversation_id)
+      .eq('client_id', client.id);
   }
 
   return NextResponse.json({ ok: true });

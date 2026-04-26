@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { requireCurrentClient } from '@/lib/client';
 import { formatDistanceToNow } from '@/lib/format';
 import { AlertResolveButton } from '@/components/alert-resolve-button';
 import { PageHeader } from '@/components/page-header';
@@ -32,11 +33,13 @@ interface Handoff {
 }
 
 export default async function AlertsPage() {
+  const client = await requireCurrentClient();
   const supabase = await createClient();
 
   const { data: unresolved } = await supabase
     .from('handoffs')
     .select('id, conversation_id, reason, trigger_message, resolved, created_at, conversations(customer_phone, customer_name)')
+    .eq('client_id', client.id)
     .eq('resolved', false)
     .order('created_at', { ascending: false })
     .limit(50);
@@ -44,6 +47,7 @@ export default async function AlertsPage() {
   const { data: resolved } = await supabase
     .from('handoffs')
     .select('id, conversation_id, reason, trigger_message, resolved, created_at, conversations(customer_phone, customer_name)')
+    .eq('client_id', client.id)
     .eq('resolved', true)
     .order('created_at', { ascending: false })
     .limit(20);

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { requireCurrentClient } from '@/lib/client';
 import { PageHeader } from '@/components/page-header';
 import { Calendar } from 'lucide-react';
 
@@ -14,10 +15,12 @@ interface Booking {
 }
 
 export default async function BookingsPage() {
+  const client = await requireCurrentClient();
   const supabase = await createClient();
   const { data } = await supabase
     .from('bookings')
     .select('*')
+    .eq('client_id', client.id)
     .order('starts_at', { ascending: true });
   const bookings = (data ?? []) as Booking[];
 

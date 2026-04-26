@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { requireCurrentClient } from '@/lib/client';
 import { MessageThread } from '@/components/message-thread';
 import { TakeoverToggle } from '@/components/takeover-toggle';
 import { ReplyBox } from '@/components/reply-box';
@@ -13,10 +14,16 @@ export default async function ConversationDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const client = await requireCurrentClient();
   const supabase = await createClient();
 
   const [{ data: convo }, { data: messages }] = await Promise.all([
-    supabase.from('conversations').select('*').eq('id', id).single(),
+    supabase
+      .from('conversations')
+      .select('*')
+      .eq('id', id)
+      .eq('client_id', client.id)
+      .single(),
     supabase
       .from('messages')
       .select('*')
