@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
+import { logAction } from '@/lib/audit';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -43,6 +44,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  logAction({
+    clientId: client.id,
+    actorUserId: user.id,
+    actorEmail: user.email ?? null,
+    action: 'customer.block',
+    targetType: 'customer',
+    targetId: body.customer_phone,
+    details: body.reason ? { reason: body.reason } : undefined,
+  });
+
   return NextResponse.json({ ok: true });
 }
 
@@ -76,6 +87,15 @@ export async function DELETE(req: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  logAction({
+    clientId: client.id,
+    actorUserId: user.id,
+    actorEmail: user.email ?? null,
+    action: 'customer.unblock',
+    targetType: 'customer',
+    targetId: phone,
+  });
 
   return NextResponse.json({ ok: true });
 }

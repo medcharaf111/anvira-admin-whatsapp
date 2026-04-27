@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
+import { logAction } from '@/lib/audit';
 import { NextResponse } from 'next/server';
 
 export async function PATCH(req: Request) {
@@ -29,6 +30,15 @@ export async function PATCH(req: Request) {
     `${process.env.NEXT_PUBLIC_BACKEND_URL}/internal/kb/invalidate?client=${client.id}`,
     { method: 'POST' }
   ).catch(() => {});
+
+  logAction({
+    clientId: client.id,
+    actorUserId: user.id,
+    actorEmail: user.email ?? null,
+    action: 'kb.update',
+    targetType: 'kb',
+    details: { fields: Object.keys(safe) },
+  });
 
   return NextResponse.json({ ok: true });
 }

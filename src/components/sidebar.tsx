@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Settings,
   Smartphone,
+  ScrollText,
   LogOut,
   Bell,
   Menu,
@@ -34,6 +35,7 @@ const NAV_GROUPS = [
       { href: '/knowledge-base', label: 'قاعدة المعرفة', icon: BookOpen, num: '05' },
       { href: '/settings', label: 'الإعدادات', icon: Settings, num: '06' },
       { href: '/mock-phone', label: 'هاتف التجربة', icon: Smartphone, num: '07' },
+      { href: '/audit', label: 'سجل النشاط', icon: ScrollText, num: '08' },
     ],
   },
 ];

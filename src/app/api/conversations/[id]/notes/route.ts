@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
+import { logAction } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,15 @@ export async function PATCH(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  logAction({
+    clientId: client.id,
+    actorUserId: user.id,
+    actorEmail: user.email ?? null,
+    action: 'conversation.note_edit',
+    targetType: 'conversation',
+    targetId: id,
+  });
 
   return NextResponse.json({ ok: true });
 }

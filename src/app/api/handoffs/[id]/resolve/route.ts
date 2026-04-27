@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
+import { logAction } from '@/lib/audit';
 import { NextResponse } from 'next/server';
 
 export async function POST(
@@ -34,6 +35,15 @@ export async function POST(
       .eq('id', handoff.conversation_id)
       .eq('client_id', client.id);
   }
+
+  logAction({
+    clientId: client.id,
+    actorUserId: user.id,
+    actorEmail: user.email ?? null,
+    action: 'handoff.resolve',
+    targetType: 'handoff',
+    targetId: id,
+  });
 
   return NextResponse.json({ ok: true });
 }

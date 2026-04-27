@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
+import { logAction } from '@/lib/audit';
 import { NextResponse } from 'next/server';
 
 export async function POST(
@@ -33,5 +34,15 @@ export async function POST(
       .eq('client_id', client.id)
       .eq('resolved', false);
   }
+
+  logAction({
+    clientId: client.id,
+    actorUserId: user.id,
+    actorEmail: user.email ?? null,
+    action: paused ? 'conversation.takeover_on' : 'conversation.takeover_off',
+    targetType: 'conversation',
+    targetId: id,
+  });
+
   return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
+import { logAction } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,5 +36,21 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify(body),
   });
   const json = await res.json();
+
+  if (res.ok && json.booking) {
+    logAction({
+      clientId: client.id,
+      actorUserId: user.id,
+      actorEmail: user.email ?? null,
+      action: 'booking.create',
+      targetType: 'booking',
+      targetId: json.booking.id,
+      details: {
+        starts_at: json.booking.starts_at,
+        customer_phone: json.booking.customer_phone,
+      },
+    });
+  }
+
   return NextResponse.json(json, { status: res.status });
 }
