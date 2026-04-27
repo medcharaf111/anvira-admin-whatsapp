@@ -15,7 +15,22 @@ export interface AnalyticsSummary {
   // Bot performance ratios
   handoffRate: number; // 0-1
   bookingConversion: number; // 0-1 (bookings / new convos)
+  // Usage / cost (last 30 days)
+  usage: {
+    llmRequests: number;
+    inputTokens: number;
+    outputTokens: number;
+    waInbound: number;
+    waOutbound: number;
+    estimatedCostUSD: number;
+  };
 }
+
+// Gemini 2.0 Flash pricing (per 1M tokens, USD). Update if model changes.
+const PRICE_INPUT_PER_1M = 0.1;
+const PRICE_OUTPUT_PER_1M = 0.4;
+// Rough WhatsApp service-conversation estimate (sandbox = free, real = ~$0.005)
+const PRICE_PER_WA_OUT = 0.005;
 
 function dayKey(d: Date | string): string {
   const date = typeof d === 'string' ? new Date(d) : d;
@@ -47,7 +62,7 @@ export async function loadAnalytics(clientId: string): Promise<AnalyticsSummary>
   const since30 = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
   const since7 = new Date(Date.now() - 7 * 24 * 60 * 60_000).toISOString();
 
-  const [msgRes, bookRes, convRes, hoffRes, hoff7Res, msg7Res] = await Promise.all([
+  const [msgRes, bookRes, convRes, hoffRes, hoff7Res, msg7Res, usageRes] = await Promise.all([
     // Messages last 30 days (for trend)
     supabase
       .from('messages')
@@ -88,6 +103,13 @@ export async function loadAnalytics(clientId: string): Promise<AnalyticsSummary>
       .select('direction')
       .eq('client_id', clientId)
       .gte('created_at', since7)
+      .limit(50_000),
+    // Usage events last 30 days (for cost summary)
+    supabase
+      .from('usage_events')
+      .select('kind, input_tokens, output_tokens')
+      .eq('client_id', clientId)
+      .gte('created_at', since30)
       .limit(50_000),
   ]);
 
@@ -149,6 +171,29 @@ export async function loadAnalytics(clientId: string): Promise<AnalyticsSummary>
   const bookingConversion =
     convos.length === 0 ? 0 : Math.min(1, bookings7 / convos.length);
 
+  // ─── Usage aggregation ─────────────────────────────────────
+  const usageRows = usageRes.data ?? [];
+  let llmRequests = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let waInbound = 0;
+  let waOutbound = 0;
+  for (const row of usageRows) {
+    if (row.kind === 'llm_request') {
+      llmRequests++;
+      inputTokens += row.input_tokens ?? 0;
+      outputTokens += row.output_tokens ?? 0;
+    } else if (row.kind === 'wa_inbound') {
+      waInbound++;
+    } else if (row.kind === 'wa_outbound') {
+      waOutbound++;
+    }
+  }
+  const estimatedCostUSD =
+    (inputTokens / 1_000_000) * PRICE_INPUT_PER_1M +
+    (outputTokens / 1_000_000) * PRICE_OUTPUT_PER_1M +
+    waOutbound * PRICE_PER_WA_OUT;
+
   return {
     messagesIn,
     messagesOut,
@@ -160,5 +205,13 @@ export async function loadAnalytics(clientId: string): Promise<AnalyticsSummary>
     handoffsByReason,
     handoffRate,
     bookingConversion,
+    usage: {
+      llmRequests,
+      inputTokens,
+      outputTokens,
+      waInbound,
+      waOutbound,
+      estimatedCostUSD,
+    },
   };
 }

@@ -4,6 +4,7 @@ import { MessageThread } from '@/components/message-thread';
 import { TakeoverToggle } from '@/components/takeover-toggle';
 import { ReplyBox } from '@/components/reply-box';
 import { BlockButton } from '@/components/block-button';
+import { DeleteCustomerButton } from '@/components/delete-customer-button';
 import { NotesEditor } from '@/components/notes-editor';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
@@ -79,7 +80,8 @@ export default async function ConversationDetailPage({
             {convo.customer_phone}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 relative">
+          <DeleteCustomerButton customerPhone={convo.customer_phone} />
           <BlockButton
             customerPhone={convo.customer_phone}
             isBlocked={isBlocked}

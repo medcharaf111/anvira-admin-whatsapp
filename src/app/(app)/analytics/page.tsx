@@ -40,7 +40,7 @@ export default async function AnalyticsPage() {
         <BookingsBarChart data={a.bookingsByDay} />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid lg:grid-cols-3 gap-4 mb-4">
         <div className="lg:col-span-2">
           <HandoffBreakdown data={a.handoffsByReason} />
         </div>
@@ -85,6 +85,101 @@ export default async function AnalyticsPage() {
           </ul>
         </div>
       </div>
+
+      {/* Usage / cost (last 30 days) */}
+      <div
+        className="p-5"
+        style={{
+          background: 'var(--paper-lift)',
+          border: '1px solid var(--rule)',
+          borderRadius: '3px',
+        }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>
+            استهلاك البوت — آخر 30 يوماً
+          </h3>
+          <div
+            className="text-[10px] uppercase tracking-widest"
+            style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+          >
+            USAGE · 30D
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-px" style={{ background: 'var(--rule)' }}>
+          <UsageStat
+            label="طلبات الذكاء"
+            value={a.usage.llmRequests.toLocaleString('ar-AE')}
+          />
+          <UsageStat
+            label="رموز ذكاء (إدخال)"
+            value={a.usage.inputTokens.toLocaleString('ar-AE')}
+          />
+          <UsageStat
+            label="رموز ذكاء (إخراج)"
+            value={a.usage.outputTokens.toLocaleString('ar-AE')}
+          />
+          <UsageStat
+            label="رسائل واتساب"
+            value={(a.usage.waInbound + a.usage.waOutbound).toLocaleString('ar-AE')}
+            hint={`${a.usage.waInbound} عملاء · ${a.usage.waOutbound} ردود`}
+          />
+          <UsageStat
+            label="تكلفة تقديرية"
+            value={`$${a.usage.estimatedCostUSD.toFixed(2)}`}
+            accent
+          />
+        </div>
+        <p
+          className="mt-3 text-[10px]"
+          style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)', letterSpacing: '0.04em' }}
+        >
+          تقدير حسب أسعار Gemini 2.0 Flash + رسالة Twilio. الرقم الفعلي قد يختلف.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function UsageStat({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="p-4" style={{ background: 'var(--paper-lift)' }}>
+      <div
+        className="text-[10px] uppercase tracking-widest mb-2"
+        style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+      >
+        {label}
+      </div>
+      <div
+        className="tabular leading-none"
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: '1.5rem',
+          fontWeight: 400,
+          color: accent ? 'var(--primary-glow)' : 'var(--ink)',
+          letterSpacing: '-0.01em',
+        }}
+      >
+        {value}
+      </div>
+      {hint && (
+        <div
+          className="mt-1 text-[10px]"
+          style={{ color: 'var(--ink-faint)' }}
+        >
+          {hint}
+        </div>
+      )}
     </div>
   );
 }
