@@ -11,6 +11,7 @@ import {
   Settings,
   Smartphone,
   ScrollText,
+  FileText,
   LogOut,
   Bell,
   Menu,
@@ -33,9 +34,10 @@ const NAV_GROUPS = [
     label: 'الإعداد',
     items: [
       { href: '/knowledge-base', label: 'قاعدة المعرفة', icon: BookOpen, num: '05' },
-      { href: '/settings', label: 'الإعدادات', icon: Settings, num: '06' },
-      { href: '/mock-phone', label: 'هاتف التجربة', icon: Smartphone, num: '07' },
-      { href: '/audit', label: 'سجل النشاط', icon: ScrollText, num: '08' },
+      { href: '/templates', label: 'الردود الجاهزة', icon: FileText, num: '06' },
+      { href: '/settings', label: 'الإعدادات', icon: Settings, num: '07' },
+      { href: '/mock-phone', label: 'هاتف التجربة', icon: Smartphone, num: '08' },
+      { href: '/audit', label: 'سجل النشاط', icon: ScrollText, num: '09' },
     ],
   },
 ];
