@@ -3,6 +3,7 @@ import { requireCurrentClient } from '@/lib/client';
 import { MessageThread } from '@/components/message-thread';
 import { TakeoverToggle } from '@/components/takeover-toggle';
 import { ReplyBox } from '@/components/reply-box';
+import { BlockButton } from '@/components/block-button';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
@@ -30,6 +31,17 @@ export default async function ConversationDetailPage({
       .eq('conversation_id', id)
       .order('created_at'),
   ]);
+
+  // Is this customer's phone on the blocklist?
+  const { data: blockRow } = convo
+    ? await supabase
+        .from('customer_blocks')
+        .select('id')
+        .eq('client_id', client.id)
+        .eq('customer_phone', convo.customer_phone)
+        .maybeSingle()
+    : { data: null };
+  const isBlocked = Boolean(blockRow);
 
   if (!convo) {
     return (
@@ -66,8 +78,30 @@ export default async function ConversationDetailPage({
             {convo.customer_phone}
           </p>
         </div>
-        <TakeoverToggle conversationId={id} initialPaused={convo.bot_paused} />
+        <div className="flex items-center gap-2">
+          <BlockButton
+            customerPhone={convo.customer_phone}
+            isBlocked={isBlocked}
+          />
+          <TakeoverToggle conversationId={id} initialPaused={convo.bot_paused} />
+        </div>
       </div>
+
+      {isBlocked && (
+        <div
+          className="mb-4 px-4 py-3 text-xs flex items-center gap-2"
+          style={{
+            background: 'var(--signal-soft)',
+            border: '1px solid var(--signal)',
+            color: 'var(--signal)',
+            borderRadius: '3px',
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.04em',
+          }}
+        >
+          <span>هذا الرقم محظور — البوت يتجاهل رسائله</span>
+        </div>
+      )}
 
       <MessageThread conversationId={id} initialMessages={messages ?? []} />
 
