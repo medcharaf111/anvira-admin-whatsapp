@@ -3,19 +3,35 @@ import { createClient } from '@/lib/supabase/server';
 import { requireCurrentClient } from '@/lib/client';
 import { formatDistanceToNow } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
+import { SearchInput } from '@/components/search-input';
 import { MessageSquare } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ConversationsPage() {
+export default async function ConversationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const { q } = await searchParams;
   const client = await requireCurrentClient();
   const supabase = await createClient();
-  const { data: convos } = await supabase
+
+  let query = supabase
     .from('conversations')
     .select('id, customer_phone, customer_name, last_message_at, bot_paused, language')
     .eq('client_id', client.id)
     .order('last_message_at', { ascending: false })
     .limit(50);
+
+  if (q && q.trim()) {
+    const term = q.trim();
+    query = query.or(
+      `customer_name.ilike.%${term}%,customer_phone.ilike.%${term}%`
+    );
+  }
+
+  const { data: convos } = await query;
 
   const total = convos?.length ?? 0;
   const paused = convos?.filter((c) => c.bot_paused).length ?? 0;
@@ -25,43 +41,54 @@ export default async function ConversationsPage() {
       <PageHeader
         eyebrow="01 / المحادثات"
         title="محادثات العملاء"
-        subtitle={`${total} محادثة مُسجّلة · ${paused} تحت سيطرتك اليدوية`}
+        subtitle={
+          q
+            ? `نتائج البحث عن "${q}" — ${total} محادثة`
+            : `${total} محادثة مُسجّلة · ${paused} تحت سيطرتك اليدوية`
+        }
       />
 
-      {/* Stats strip */}
-      <div
-        className="grid grid-cols-3 gap-px mb-10"
-        style={{ background: 'var(--rule)' }}
-      >
-        {[
-          { label: 'المجموع', value: total, accent: false },
-          { label: 'البوت يعمل', value: total - paused, accent: true },
-          { label: 'تحت سيطرتك', value: paused, accent: false, signal: paused > 0 },
-        ].map((stat) => (
-          <div key={stat.label} className="p-5" style={{ background: 'var(--paper-lift)' }}>
-            <div
-              className="text-[10px] uppercase tracking-widest mb-2"
-              style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
-            >
-              {stat.label}
+      {/* Stats strip — hide when searching */}
+      {!q && (
+        <div
+          className="grid grid-cols-3 gap-px mb-8"
+          style={{ background: 'var(--rule)' }}
+        >
+          {[
+            { label: 'المجموع', value: total, accent: false },
+            { label: 'البوت يعمل', value: total - paused, accent: true },
+            { label: 'تحت سيطرتك', value: paused, accent: false, signal: paused > 0 },
+          ].map((stat) => (
+            <div key={stat.label} className="p-5" style={{ background: 'var(--paper-lift)' }}>
+              <div
+                className="text-[10px] uppercase tracking-widest mb-2"
+                style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+              >
+                {stat.label}
+              </div>
+              <div
+                className="tabular text-3xl"
+                style={{
+                  fontFamily: 'var(--font-display)',
+                  fontWeight: 400,
+                  color: stat.signal
+                    ? 'var(--signal)'
+                    : stat.accent
+                    ? 'var(--primary-glow)'
+                    : 'var(--ink)',
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {stat.value}
+              </div>
             </div>
-            <div
-              className="tabular text-3xl"
-              style={{
-                fontFamily: 'var(--font-display)',
-                fontWeight: 400,
-                color: stat.signal
-                  ? 'var(--signal)'
-                  : stat.accent
-                  ? 'var(--primary-glow)'
-                  : 'var(--ink)',
-                letterSpacing: '-0.02em',
-              }}
-            >
-              {stat.value}
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="mb-6 max-w-md">
+        <SearchInput placeholder="ابحث باسم العميل أو رقمه..." />
       </div>
 
       {/* List header */}
@@ -152,7 +179,9 @@ export default async function ConversationsPage() {
             strokeWidth={1}
           />
           <p style={{ color: 'var(--ink-soft)' }} className="text-sm">
-            لا توجد محادثات بعد. أرسل رسالة من هاتف التجربة للبدء.
+            {q
+              ? `لا نتائج لـ "${q}"`
+              : 'لا توجد محادثات بعد. أرسل رسالة من هاتف التجربة للبدء.'}
           </p>
         </div>
       )}

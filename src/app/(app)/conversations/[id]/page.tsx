@@ -4,6 +4,7 @@ import { MessageThread } from '@/components/message-thread';
 import { TakeoverToggle } from '@/components/takeover-toggle';
 import { ReplyBox } from '@/components/reply-box';
 import { BlockButton } from '@/components/block-button';
+import { NotesEditor } from '@/components/notes-editor';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
@@ -102,6 +103,11 @@ export default async function ConversationDetailPage({
           <span>هذا الرقم محظور — البوت يتجاهل رسائله</span>
         </div>
       )}
+
+      <NotesEditor
+        conversationId={id}
+        initial={(convo as any).operator_notes ?? ''}
+      />
 
       <MessageThread conversationId={id} initialMessages={messages ?? []} />
 
