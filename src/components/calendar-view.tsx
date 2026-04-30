@@ -29,14 +29,6 @@ type CalEvent = BookingEvent | ExternalEvent;
 
 const HOUR_HEIGHT = 56;       // px per hour
 const HOURS_VISIBLE = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]; // 8 AM – 8 PM
-const ARABIC_DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-
-function startOfWeek(d: Date): Date {
-  const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
-  out.setDate(out.getDate() - out.getDay()); // Sunday start
-  return out;
-}
 
 /** Extract hour + minute as observed in the given IANA timezone. */
 function zonedHourMinute(date: Date, tz: string): { hour: number; minute: number } {
@@ -49,6 +41,52 @@ function zonedHourMinute(date: Date, tz: string): { hour: number; minute: number
   const parts = fmt.formatToParts(date);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '0';
   return { hour: Number(get('hour')) % 24, minute: Number(get('minute')) };
+}
+
+/** Extract year/month/day/dayOfWeek (Sun=0..Sat=6) as observed in the given timezone. */
+function zonedYMD(
+  date: Date,
+  tz: string
+): { year: number; month: number; day: number; dayOfWeek: number } {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'short',
+  });
+  const parts = fmt.formatToParts(date);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return {
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
+    dayOfWeek: dowMap[get('weekday')] ?? 0,
+  };
+}
+
+/** True iff the two dates fall on the same calendar day in the given timezone. */
+function sameYMDInTz(a: Date, b: Date, tz: string): boolean {
+  const za = zonedYMD(a, tz);
+  const zb = zonedYMD(b, tz);
+  return za.year === zb.year && za.month === zb.month && za.day === zb.day;
+}
+
+/**
+ * Return a Date pointing to noon (in the given timezone) on the Sunday that
+ * begins the current week. Using noon-in-tz makes the resulting Date robust
+ * to cross-timezone-line viewers and DST shifts.
+ */
+function startOfWeekInTz(now: Date, tz: string): Date {
+  const z = zonedYMD(now, tz);
+  // Build UTC noon for Sunday's Y-M-D, then offset-correct so the same instant
+  // formats as 12:00 in tz. Date.UTC handles negative day rollover.
+  const sundayDayNum = z.day - z.dayOfWeek;
+  const utcNoonCandidate = new Date(Date.UTC(z.year, z.month - 1, sundayDayNum, 12, 0, 0));
+  const hourInTz = zonedHourMinute(utcNoonCandidate, tz).hour;
+  const offsetHours = hourInTz - 12;
+  return new Date(utcNoonCandidate.getTime() - offsetHours * 3600_000);
 }
 
 function addDays(d: Date, n: number): Date {
@@ -72,7 +110,7 @@ function isoLocal(d: Date): string {
 }
 
 export function CalendarView({ businessTimezone }: { businessTimezone: string }) {
-  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
+  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeekInTz(new Date(), businessTimezone));
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [createSlot, setCreateSlot] = useState<Date | null>(null);
@@ -137,7 +175,7 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
   }, [fetchEvents]);
 
   function eventsForDay(day: Date): CalEvent[] {
-    return events.filter((e) => sameYMD(new Date(e.starts_at), day));
+    return events.filter((e) => sameYMDInTz(new Date(e.starts_at), day, businessTimezone));
   }
 
   return (
@@ -156,7 +194,7 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
             <ChevronRight className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setWeekStart(startOfWeek(new Date()))}
+            onClick={() => setWeekStart(startOfWeekInTz(new Date(), businessTimezone))}
             className="btn-ghost h-9 px-4 text-xs"
           >
             هذا الأسبوع
@@ -236,7 +274,7 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
         >
           <div />
           {days.map((d, i) => {
-            const isToday = sameYMD(d, new Date());
+            const isToday = sameYMDInTz(d, new Date(), businessTimezone);
             return (
               <div
                 key={i}
@@ -250,7 +288,7 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
                   className="text-[10px] uppercase tracking-widest"
                   style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
                 >
-                  {ARABIC_DAYS[d.getDay()]}
+                  {d.toLocaleDateString('ar-AE', { weekday: 'short', timeZone: businessTimezone })}
                 </div>
                 <div
                   className="tabular text-lg mt-1"
@@ -260,7 +298,7 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
                     color: isToday ? 'var(--primary-glow)' : 'var(--ink)',
                   }}
                 >
-                  {d.getDate()}
+                  {d.toLocaleDateString('en-US', { day: 'numeric', timeZone: businessTimezone })}
                 </div>
               </div>
             );
