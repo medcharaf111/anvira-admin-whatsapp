@@ -4,6 +4,7 @@ import { requireCurrentClient } from '@/lib/client';
 import { formatDistanceToNow } from '@/lib/format';
 import { PageHeader } from '@/components/page-header';
 import { SearchInput } from '@/components/search-input';
+import { RealtimeRefresh } from '@/components/realtime-refresh';
 import { MessageSquare } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -38,6 +39,15 @@ export default async function ConversationsPage({
 
   return (
     <div>
+      <RealtimeRefresh
+        subs={[
+          // New conversation rows OR last_message_at / bot_paused changes
+          { table: 'conversations', filter: `client_id=eq.${client.id}` },
+          // New messages — covers the "I just got a reply" case where the
+          // conversations row UPDATE event sometimes arrives slightly later
+          { table: 'messages', filter: `client_id=eq.${client.id}`, events: ['INSERT'] },
+        ]}
+      />
       <PageHeader
         eyebrow="01 / المحادثات"
         title="محادثات العملاء"

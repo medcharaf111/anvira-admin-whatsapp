@@ -1,6 +1,7 @@
 import { Sidebar } from '@/components/sidebar';
 import { PageTransition } from '@/components/page-transition';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { RealtimeRefresh } from '@/components/realtime-refresh';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { isOperatorEmail } from '@/lib/operator';
@@ -32,6 +33,19 @@ export default async function AppLayout({
 
   return (
     <div dir="rtl" className="flex min-h-dvh" style={{ background: 'var(--paper)' }}>
+      {/* Layout-level realtime: refreshes the unresolved-handoff badge in the
+          sidebar whenever a new alert is created or one is resolved, no matter
+          which page the operator is on. INSERT/UPDATE only — DELETE shouldn't
+          happen for handoffs. */}
+      <RealtimeRefresh
+        subs={[
+          {
+            table: 'handoffs',
+            filter: `client_id=eq.${client.id}`,
+            events: ['INSERT', 'UPDATE'],
+          },
+        ]}
+      />
       <Sidebar alertCount={alertCount ?? 0} isOperator={operatorView} />
       <main className="flex-1 overflow-auto pt-12 md:pt-0">
         {/* Top bar — theme toggle (desktop only; on mobile it's in the sidebar top bar) */}

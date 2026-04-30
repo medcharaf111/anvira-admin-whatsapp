@@ -3,6 +3,7 @@ import { requireCurrentClient } from '@/lib/client';
 import { formatDistanceToNow } from '@/lib/format';
 import { AlertResolveButton } from '@/components/alert-resolve-button';
 import { PageHeader } from '@/components/page-header';
+import { RealtimeRefresh } from '@/components/realtime-refresh';
 import Link from 'next/link';
 import { MessageSquare, CheckCircle2, ArrowLeft } from 'lucide-react';
 
@@ -56,6 +57,11 @@ export default async function AlertsPage() {
 
   return (
     <div>
+      <RealtimeRefresh
+        subs={[
+          { table: 'handoffs', filter: `client_id=eq.${client.id}` },
+        ]}
+      />
       <PageHeader
         eyebrow="02 / التنبيهات"
         title="تنبيهات تحتاج تدخلك"

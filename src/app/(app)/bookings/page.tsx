@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { requireCurrentClient } from '@/lib/client';
 import { PageHeader } from '@/components/page-header';
+import { RealtimeRefresh } from '@/components/realtime-refresh';
 import { Calendar } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,9 @@ export default async function BookingsPage() {
 
   return (
     <div>
+      <RealtimeRefresh
+        subs={[{ table: 'bookings', filter: `client_id=eq.${client.id}` }]}
+      />
       <PageHeader
         eyebrow="03 / المواعيد"
         title="المواعيد المحجوزة"
