@@ -54,9 +54,9 @@ export default async function BookingsPage() {
         </div>
       ) : (
         <>
-          <Section title="مؤكّدة" items={groups.confirmed} severity="success" />
-          <Section title="في الانتظار" items={groups.pending} severity="warn" />
-          <Section title="ملغاة" items={groups.cancelled} severity="idle" />
+          <Section title="مؤكّدة" items={groups.confirmed} severity="success" timezone={client.business_timezone} />
+          <Section title="في الانتظار" items={groups.pending} severity="warn" timezone={client.business_timezone} />
+          <Section title="ملغاة" items={groups.cancelled} severity="idle" timezone={client.business_timezone} />
         </>
       )}
     </div>
@@ -67,10 +67,12 @@ function Section({
   title,
   items,
   severity,
+  timezone,
 }: {
   title: string;
   items: Booking[];
   severity: 'success' | 'warn' | 'idle';
+  timezone: string;
 }) {
   if (items.length === 0) return null;
 
@@ -124,6 +126,7 @@ function Section({
                   month: 'short',
                   hour: '2-digit',
                   minute: '2-digit',
+                  timeZone: timezone,
                 })}
               </div>
               <div className="mt-1.5">

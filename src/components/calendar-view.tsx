@@ -38,6 +38,19 @@ function startOfWeek(d: Date): Date {
   return out;
 }
 
+/** Extract hour + minute as observed in the given IANA timezone. */
+function zonedHourMinute(date: Date, tz: string): { hour: number; minute: number } {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(date);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '0';
+  return { hour: Number(get('hour')) % 24, minute: Number(get('minute')) };
+}
+
 function addDays(d: Date, n: number): Date {
   const out = new Date(d);
   out.setDate(out.getDate() + n);
@@ -58,7 +71,7 @@ function isoLocal(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function CalendarView() {
+export function CalendarView({ businessTimezone }: { businessTimezone: string }) {
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -161,9 +174,9 @@ export function CalendarView() {
           className="display-ar text-lg"
           style={{ color: 'var(--ink)' }}
         >
-          {weekStart.toLocaleDateString('ar-AE', { day: 'numeric', month: 'long' })}{' '}
+          {weekStart.toLocaleDateString('ar-AE', { day: 'numeric', month: 'long', timeZone: businessTimezone })}{' '}
           —{' '}
-          {addDays(weekStart, 6).toLocaleDateString('ar-AE', { day: 'numeric', month: 'long', year: 'numeric' })}
+          {addDays(weekStart, 6).toLocaleDateString('ar-AE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: businessTimezone })}
         </div>
 
         <div className="flex items-center gap-2">
@@ -292,6 +305,7 @@ export function CalendarView() {
               onSlotClick={(date) => setCreateSlot(date)}
               onEventClick={(ev) => setOpenEvent(ev)}
               showLeftBorder={di > 0}
+              businessTimezone={businessTimezone}
             />
           ))}
         </div>
@@ -326,6 +340,7 @@ export function CalendarView() {
               setOpenEvent(null);
               fetchEvents();
             }}
+            businessTimezone={businessTimezone}
           />
         )}
       </AnimatePresence>
@@ -339,12 +354,14 @@ function DayColumn({
   onSlotClick,
   onEventClick,
   showLeftBorder,
+  businessTimezone,
 }: {
   day: Date;
   events: CalEvent[];
   onSlotClick: (date: Date) => void;
   onEventClick: (ev: CalEvent) => void;
   showLeftBorder: boolean;
+  businessTimezone: string;
 }) {
   return (
     <div
@@ -375,8 +392,10 @@ function DayColumn({
       {events.map((ev) => {
         const start = new Date(ev.starts_at);
         const end = new Date(ev.ends_at);
-        const startHour = start.getHours() + start.getMinutes() / 60;
-        const endHour = end.getHours() + end.getMinutes() / 60;
+        const sZ = zonedHourMinute(start, businessTimezone);
+        const eZ = zonedHourMinute(end, businessTimezone);
+        const startHour = sZ.hour + sZ.minute / 60;
+        const endHour = eZ.hour + eZ.minute / 60;
 
         const top = (startHour - HOURS_VISIBLE[0]) * HOUR_HEIGHT;
         const height = Math.max((endHour - startHour) * HOUR_HEIGHT, 24);
@@ -423,7 +442,7 @@ function DayColumn({
               style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
               dir="ltr"
             >
-              {start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+              {start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: businessTimezone })}
             </div>
           </button>
         );
@@ -571,10 +590,12 @@ function EventDetailModal({
   event,
   onClose,
   onDeleted,
+  businessTimezone,
 }: {
   event: CalEvent;
   onClose: () => void;
   onDeleted: () => void;
+  businessTimezone: string;
 }) {
   const [deleting, setDeleting] = useState(false);
   const start = new Date(event.starts_at);
@@ -645,6 +666,7 @@ function EventDetailModal({
             month: 'long',
             hour: '2-digit',
             minute: '2-digit',
+            timeZone: businessTimezone,
           })}
         />
         <DetailRow
@@ -655,6 +677,7 @@ function EventDetailModal({
             month: 'long',
             hour: '2-digit',
             minute: '2-digit',
+            timeZone: businessTimezone,
           })}
         />
 
