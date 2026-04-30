@@ -3,6 +3,7 @@ import { PageTransition } from '@/components/page-transition';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
+import { isOperatorEmail } from '@/lib/operator';
 import { redirect } from 'next/navigation';
 
 export default async function AppLayout({
@@ -27,9 +28,11 @@ export default async function AppLayout({
     .eq('client_id', client.id)
     .eq('resolved', false);
 
+  const operatorView = isOperatorEmail(user.email);
+
   return (
     <div dir="rtl" className="flex min-h-dvh" style={{ background: 'var(--paper)' }}>
-      <Sidebar alertCount={alertCount ?? 0} />
+      <Sidebar alertCount={alertCount ?? 0} isOperator={operatorView} />
       <main className="flex-1 overflow-auto pt-12 md:pt-0">
         {/* Top bar — theme toggle (desktop only; on mobile it's in the sidebar top bar) */}
         <div

@@ -17,6 +17,7 @@ import {
   Bell,
   Menu,
   X,
+  Crown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -44,7 +45,20 @@ const NAV_GROUPS = [
   },
 ];
 
-export function Sidebar({ alertCount = 0 }: { alertCount?: number }) {
+const FOUNDER_GROUP = {
+  label: 'FOUNDERS',
+  items: [
+    { href: '/operator', label: 'إدارة العملاء', icon: Crown, num: '00' },
+  ],
+};
+
+export function Sidebar({
+  alertCount = 0,
+  isOperator = false,
+}: {
+  alertCount?: number;
+  isOperator?: boolean;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -80,7 +94,7 @@ export function Sidebar({ alertCount = 0 }: { alertCount?: number }) {
 
       {/* Nav groups */}
       <nav className="flex-1 px-3 py-6 space-y-7 overflow-y-auto">
-        {NAV_GROUPS.map((group) => (
+        {[...(isOperator ? [FOUNDER_GROUP] : []), ...NAV_GROUPS].map((group) => (
           <div key={group.label}>
             <div
               className="px-3 mb-3 text-[10px]"
