@@ -79,7 +79,7 @@ function BusinessHoursEditor({
   );
 }
 
-export function SettingsForm({ initial }: { initial: any }) {
+export function SettingsForm({ initial, clientId }: { initial: any; clientId: string }) {
   const [s, setS] = useState(initial);
 
   async function save(): Promise<boolean> {
@@ -170,7 +170,7 @@ export function SettingsForm({ initial }: { initial: any }) {
           variant={s.google_refresh_token ? 'outline' : 'default'}
           className="h-12"
         >
-          <a href={`${process.env.NEXT_PUBLIC_BACKEND_URL}/oauth/google/start`}>
+          <a href={`${process.env.NEXT_PUBLIC_BACKEND_URL}/oauth/google/start?client=${clientId}`}>
             {s.google_refresh_token ? 'إعادة ربط التقويم' : 'ربط التقويم'}
           </a>
         </Button>

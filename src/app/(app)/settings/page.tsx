@@ -21,7 +21,7 @@ export default async function SettingsPage() {
         title="إعدادات المساعد"
         subtitle="ساعات العمل، ربط التقويم، قواعد التحويل، والتنبيهات."
       />
-      <SettingsForm initial={settings ?? {}} />
+      <SettingsForm initial={settings ?? {}} clientId={client.id} />
     </div>
   );
 }
