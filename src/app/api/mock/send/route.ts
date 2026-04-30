@@ -1,9 +1,25 @@
 import { NextResponse } from 'next/server';
+import { requireCurrentClient } from '@/lib/client';
+
+// Test personas defined client-side in /mock-phone — keep this list in sync.
+const ALLOWED_MOCK_PHONES = new Set([
+  '+971501111111',
+  '+971502222222',
+  '+971503333333',
+]);
 
 export async function POST(req: Request) {
+  // Require an authenticated operator with a linked client. Without this,
+  // anyone could POST to this endpoint and trigger LLM/Twilio costs against
+  // the sandbox.
+  await requireCurrentClient();
+
   const { phone, name, body } = await req.json();
   if (!phone || !body) {
     return NextResponse.json({ error: 'bad input' }, { status: 400 });
+  }
+  if (!ALLOWED_MOCK_PHONES.has(phone)) {
+    return NextResponse.json({ error: 'phone_not_allowed' }, { status: 400 });
   }
 
   const payload = {

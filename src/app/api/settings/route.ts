@@ -25,7 +25,10 @@ export async function PATCH(req: Request) {
 
   fetch(
     `${process.env.NEXT_PUBLIC_BACKEND_URL}/internal/settings/invalidate?client=${client.id}`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      headers: { 'X-Internal-Secret': process.env.INTERNAL_SHARED_SECRET ?? '' },
+    }
   ).catch(() => {});
 
   logAction({

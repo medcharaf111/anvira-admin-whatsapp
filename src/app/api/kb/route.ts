@@ -28,7 +28,10 @@ export async function PATCH(req: Request) {
   // Invalidate backend KB cache for this tenant
   fetch(
     `${process.env.NEXT_PUBLIC_BACKEND_URL}/internal/kb/invalidate?client=${client.id}`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      headers: { 'X-Internal-Secret': process.env.INTERNAL_SHARED_SECRET ?? '' },
+    }
   ).catch(() => {});
 
   logAction({
