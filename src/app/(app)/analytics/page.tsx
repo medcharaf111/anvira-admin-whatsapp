@@ -106,7 +106,7 @@ export default async function AnalyticsPage() {
             USAGE · 30D
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-px" style={{ background: 'var(--rule)' }}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background: 'var(--rule)' }}>
           <UsageStat
             label="طلبات الذكاء"
             value={a.usage.llmRequests.toLocaleString('ar-AE')}
@@ -123,19 +123,9 @@ export default async function AnalyticsPage() {
             label="رسائل واتساب"
             value={(a.usage.waInbound + a.usage.waOutbound).toLocaleString('ar-AE')}
             hint={`${a.usage.waInbound} عملاء · ${a.usage.waOutbound} ردود`}
-          />
-          <UsageStat
-            label="تكلفة تقديرية"
-            value={`$${a.usage.estimatedCostUSD.toFixed(2)}`}
             accent
           />
         </div>
-        <p
-          className="mt-3 text-[10px]"
-          style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)', letterSpacing: '0.04em' }}
-        >
-          تقدير حسب أسعار Gemini 2.0 Flash + رسالة Twilio. الرقم الفعلي قد يختلف.
-        </p>
       </div>
     </div>
   );
