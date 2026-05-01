@@ -68,8 +68,13 @@ function NewClientModal({ onClose }: { onClose: () => void }) {
 
   async function copyCredentials() {
     if (!created) return;
+    // Read the admin domain at runtime so previews / staging / domain
+    // changes surface in the credentials block automatically. Falls back
+    // to the production URL if NEXT_PUBLIC_ADMIN_URL isn't set.
+    const adminUrl =
+      process.env.NEXT_PUBLIC_ADMIN_URL ?? 'https://admin.anviraplus.it.com';
     await navigator.clipboard.writeText(
-      `أنفيرا — بيانات الدخول\n\nالبريد: ${created.email}\nكلمة المرور: ${created.password}\n\nسجّل الدخول من: https://admin.anviraplus.it.com`
+      `أنفيرا — بيانات الدخول\n\nالبريد: ${created.email}\nكلمة المرور: ${created.password}\n\nسجّل الدخول من: ${adminUrl}`
     );
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
