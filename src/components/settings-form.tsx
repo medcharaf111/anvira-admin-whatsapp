@@ -129,6 +129,51 @@ export function SettingsForm({ initial, clientId }: { initial: any; clientId: st
       </motion.section>
 
       <motion.section variants={staggerItem} className="space-y-3">
+        <h2 className="text-xl font-medium">مدة الموعد الافتراضية</h2>
+        <p className="text-sm text-muted-foreground">
+          المدة بالدقائق التي يحجزها البوت لكل موعد جديد. اختر القيمة المناسبة لطبيعة عملك.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          {[15, 30, 45, 60, 90, 120].map((min) => {
+            const active = (s.default_appointment_min ?? 30) === min;
+            return (
+              <button
+                key={min}
+                type="button"
+                onClick={() => setS({ ...s, default_appointment_min: min })}
+                className="h-11 px-4 text-sm transition-all"
+                style={{
+                  background: active ? 'var(--ink)' : 'var(--paper-lift)',
+                  color: active ? 'var(--paper)' : 'var(--ink-soft)',
+                  border: '1px solid var(--rule)',
+                  borderRadius: '3px',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                {min === 60 ? 'ساعة' : min === 120 ? 'ساعتان' : `${min} د`}
+              </button>
+            );
+          })}
+          <Input
+            type="number"
+            min={5}
+            max={480}
+            step={5}
+            value={s.default_appointment_min ?? 30}
+            onChange={(e) => {
+              const n = Math.max(5, Math.min(480, Number(e.target.value) || 30));
+              setS({ ...s, default_appointment_min: n });
+            }}
+            className="h-11 w-24 text-base text-center tabular"
+            style={{ fontFamily: 'var(--font-mono)' }}
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground" style={{ color: 'var(--ink-faint)' }}>
+          مثال: عيادة أسنان عادية ٣٠–٤٥ دقيقة، صالون شعر ساعة، تقويم أسنان ساعتان.
+        </p>
+      </motion.section>
+
+      <motion.section variants={staggerItem} className="space-y-3">
         <h2 className="text-xl font-medium">بريد المالك</h2>
         <p className="text-sm text-muted-foreground">
           المكان اللي نرسل له إشعار لما عميل يحتاجك.
