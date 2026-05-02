@@ -3,16 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, X, Loader2, Copy, Check } from 'lucide-react';
-
-const TIMEZONES = [
-  'Asia/Riyadh',
-  'Asia/Dubai',
-  'Asia/Qatar',
-  'Asia/Kuwait',
-  'Asia/Bahrain',
-  'Africa/Tunis',
-  'Africa/Casablanca',
-];
+import { GULF_TIMEZONES } from '@/lib/timezones';
 
 function generatePassword(length = 12): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
@@ -280,8 +271,10 @@ function NewClientModal({ onClose }: { onClose: () => void }) {
                   className="input-boxed w-full"
                   style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}
                 >
-                  {TIMEZONES.map((tz) => (
-                    <option key={tz} value={tz}>{tz}</option>
+                  {GULF_TIMEZONES.map((tz) => (
+                    <option key={tz.iana} value={tz.iana}>
+                      {tz.label} · {tz.utcOffset}
+                    </option>
                   ))}
                 </select>
               </Field>

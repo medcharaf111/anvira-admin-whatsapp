@@ -2,6 +2,7 @@ import { Sidebar } from '@/components/sidebar';
 import { PageTransition } from '@/components/page-transition';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { RealtimeRefresh } from '@/components/realtime-refresh';
+import { TopBarClock } from '@/components/top-bar-clock';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { isOperatorEmail } from '@/lib/operator';
@@ -58,15 +59,19 @@ export default async function AppLayout({
           }}
         >
           <span
-            className="text-[11px] mr-auto"
+            className="text-[11px] mr-auto flex items-center gap-3"
             style={{
               fontFamily: 'var(--font-mono)',
               color: 'var(--ink-faint)',
               letterSpacing: '0.08em',
             }}
           >
-            {client.name}
-            {client.is_sandbox ? ' · SANDBOX' : ''}
+            <span>
+              {client.name}
+              {client.is_sandbox ? ' · SANDBOX' : ''}
+            </span>
+            <span style={{ color: 'var(--ink-ghost)' }}>·</span>
+            <TopBarClock timezone={client.business_timezone} />
           </span>
           <ThemeToggle />
         </div>

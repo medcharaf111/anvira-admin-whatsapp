@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { SaveButton } from '@/components/save-button';
 import { toast } from 'sonner';
 import { staggerContainer, staggerItem } from '@/lib/motion';
+import { GULF_TIMEZONES } from '@/lib/timezones';
 
 const DAYS: { key: string; label: string }[] = [
   { key: 'sun', label: 'الأحد' },
@@ -118,9 +119,28 @@ export function SettingsForm({ initial, clientId }: { initial: any; clientId: st
       </motion.section>
 
       <motion.section variants={staggerItem} className="space-y-3">
+        <h2 className="text-xl font-medium">المنطقة الزمنية</h2>
+        <p className="text-sm text-muted-foreground">
+          المدينة التي يعمل فيها نشاطك. البوت يحجز المواعيد ويعرضها بهذا التوقيت.
+        </p>
+        <select
+          value={s.business_timezone ?? 'Asia/Riyadh'}
+          onChange={(e) => setS({ ...s, business_timezone: e.target.value })}
+          className="input-boxed h-12 text-base w-full max-w-md"
+          style={{ fontFamily: 'var(--font-mono)' }}
+        >
+          {GULF_TIMEZONES.map((tz) => (
+            <option key={tz.iana} value={tz.iana}>
+              {tz.label} · {tz.utcOffset}
+            </option>
+          ))}
+        </select>
+      </motion.section>
+
+      <motion.section variants={staggerItem} className="space-y-3">
         <h2 className="text-xl font-medium">ساعات العمل</h2>
         <p className="text-sm text-muted-foreground">
-          حدد أوقات العمل لكل يوم. البوت يرد "نحن مغلقون" خارج هذه الأوقات.
+          حدد أوقات العمل لكل يوم بتوقيت موقع نشاطك. البوت يرد "نحن مغلقون" خارج هذه الأوقات.
         </p>
         <BusinessHoursEditor
           value={s.business_hours ?? {}}

@@ -1,14 +1,18 @@
 import { NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator';
 import { createServiceClient } from '@/lib/supabase/server';
+import { GULF_TIMEZONES } from '@/lib/timezones';
 
 interface UpdateBody {
   wa_number?: string | null;
+  timezone?: string;
   plan?: 'starter' | 'pro' | 'business';
   subscription_status?: 'trial' | 'active' | 'past_due' | 'cancelled';
   paid_until?: string | null;
   notes?: string | null;
 }
+
+const ALLOWED_TIMEZONES = new Set(GULF_TIMEZONES.map((tz) => tz.iana));
 
 export async function PATCH(
   req: Request,
@@ -41,6 +45,12 @@ export async function PATCH(
   }
   if (body.paid_until !== undefined) patch.paid_until = body.paid_until;
   if (body.notes !== undefined) patch.notes = body.notes;
+  if (body.timezone !== undefined) {
+    if (!ALLOWED_TIMEZONES.has(body.timezone)) {
+      return NextResponse.json({ error: 'invalid_timezone' }, { status: 400 });
+    }
+    patch.business_timezone = body.timezone;
+  }
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'nothing_to_update' }, { status: 400 });
@@ -51,5 +61,14 @@ export async function PATCH(
   if (error) {
     return NextResponse.json({ error: 'update_failed', detail: error.message }, { status: 500 });
   }
+
+  // Sync settings.business_timezone so the bot prompt reads the same value.
+  if (typeof patch.business_timezone === 'string') {
+    await svc
+      .from('settings')
+      .update({ business_timezone: patch.business_timezone })
+      .eq('client_id', id);
+  }
+
   return NextResponse.json({ ok: true });
 }

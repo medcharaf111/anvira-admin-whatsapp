@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Pencil, X, Loader2, Phone, Calendar, Crown, FlaskConical } from 'lucide-react';
+import { GULF_TIMEZONES } from '@/lib/timezones';
 
 export interface OperatorClient {
   id: string;
@@ -176,6 +177,7 @@ function EditClientModal({
 }) {
   const router = useRouter();
   const [waNumber, setWaNumber] = useState(client.wa_number ?? '');
+  const [timezone, setTimezone] = useState(client.business_timezone);
   const [plan, setPlan] = useState(client.plan);
   const [status, setStatus] = useState(client.subscription_status);
   const [paidUntil, setPaidUntil] = useState(
@@ -207,6 +209,7 @@ function EditClientModal({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         wa_number: normalizedWa,
+        timezone,
         plan,
         subscription_status: status,
         paid_until: paidUntil ? new Date(paidUntil).toISOString() : null,
@@ -280,6 +283,21 @@ function EditClientModal({
             >
               الرقم الذي اشتريته عبر Twilio لهذا العميل. يجب أن يبدأ بـ whatsapp:+
             </p>
+          </Field>
+
+          <Field label="المنطقة الزمنية">
+            <select
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              className="input-boxed w-full"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            >
+              {GULF_TIMEZONES.map((tz) => (
+                <option key={tz.iana} value={tz.iana}>
+                  {tz.label} · {tz.utcOffset}
+                </option>
+              ))}
+            </select>
           </Field>
 
           <div className="grid grid-cols-2 gap-4">

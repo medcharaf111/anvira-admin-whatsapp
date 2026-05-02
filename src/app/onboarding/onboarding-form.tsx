@@ -2,17 +2,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, ArrowLeft } from 'lucide-react';
+import { GULF_TIMEZONES } from '@/lib/timezones';
 
-const TIMEZONES = [
-  { value: 'Asia/Riyadh', label: 'الرياض (GMT+3)' },
-  { value: 'Asia/Dubai', label: 'دبي / أبو ظبي (GMT+4)' },
-  { value: 'Asia/Qatar', label: 'الدوحة (GMT+3)' },
-  { value: 'Asia/Kuwait', label: 'الكويت (GMT+3)' },
-  { value: 'Asia/Bahrain', label: 'البحرين (GMT+3)' },
-  { value: 'Asia/Muscat', label: 'مسقط (GMT+4)' },
-  { value: 'Africa/Casablanca', label: 'الدار البيضاء (GMT+1)' },
-  { value: 'Africa/Cairo', label: 'القاهرة (GMT+2)' },
-];
+const TIMEZONES = GULF_TIMEZONES.map((tz) => ({
+  value: tz.iana,
+  label: `${tz.label} · ${tz.utcOffset}`,
+}));
 
 const LANGUAGES = [
   { value: 'ar', label: 'العربية' },

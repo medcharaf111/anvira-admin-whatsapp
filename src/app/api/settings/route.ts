@@ -23,6 +23,17 @@ export async function PATCH(req: Request) {
     .upsert({ ...safe, client_id: client.id }, { onConflict: 'client_id' });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Keep dashboard_clients.business_timezone in sync. Two columns hold the
+  // TZ historically (one for tenant resolution, one for the bot prompt) —
+  // they must never drift or the calendar grid renders against a different
+  // TZ than the bot is using.
+  if (typeof safe.business_timezone === 'string') {
+    await svc
+      .from('dashboard_clients')
+      .update({ business_timezone: safe.business_timezone })
+      .eq('id', client.id);
+  }
+
   fetch(
     `${process.env.NEXT_PUBLIC_BACKEND_URL}/internal/settings/invalidate?client=${client.id}`,
     {
