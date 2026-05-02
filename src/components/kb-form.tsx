@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { SaveButton } from '@/components/save-button';
 import { toast } from 'sonner';
+import { KB_TEMPLATES, type KbTemplate } from '@/lib/kb-templates';
+import { Sparkles } from 'lucide-react';
 
 const FIELDS: {
   key: string;
@@ -23,6 +25,8 @@ const FIELDS: {
 
 export function KbForm({ initial }: { initial: Record<string, any> }) {
   const [values, setValues] = useState(initial);
+  const [templateId, setTemplateId] = useState('');
+  const [overwrite, setOverwrite] = useState(false);
 
   async function onSave(): Promise<boolean> {
     const res = await fetch('/api/kb', {
@@ -37,8 +41,96 @@ export function KbForm({ initial }: { initial: Record<string, any> }) {
     return true;
   }
 
+  function applyTemplate(t: KbTemplate) {
+    // Default behavior: only fill EMPTY fields. With overwrite: replace
+    // every field with the template's content. Either way, every field
+    // remains free-text editable after the apply.
+    const next = { ...values };
+    for (const [key, val] of Object.entries(t.fields)) {
+      const current = (next[key] ?? '').trim();
+      if (overwrite || !current) {
+        next[key] = val;
+      }
+    }
+    setValues(next);
+    toast.success(
+      overwrite
+        ? `تم تطبيق قالب "${t.label}" واستبدال الحقول الموجودة`
+        : `تم تطبيق قالب "${t.label}" على الحقول الفارغة`
+    );
+  }
+
   return (
     <div>
+      {/* Template picker — sits above the field list */}
+      <div
+        className="mb-8 p-5 flex items-center justify-between gap-4 flex-wrap"
+        style={{
+          background: 'var(--paper-lift)',
+          border: '1px solid var(--rule)',
+          borderRadius: '3px',
+        }}
+      >
+        <div className="min-w-0 flex items-start gap-3">
+          <Sparkles
+            className="w-4 h-4 mt-1 shrink-0"
+            style={{ color: 'var(--primary-glow)' }}
+            strokeWidth={1.5}
+          />
+          <div>
+            <div
+              className="text-sm font-semibold"
+              style={{ color: 'var(--ink)' }}
+            >
+              قالب جاهز يوفّر لك ٢٥ دقيقة
+            </div>
+            <p
+              className="text-xs mt-1 leading-relaxed"
+              style={{ color: 'var(--ink-faint)' }}
+            >
+              اختر طبيعة عملك ونملأ الحقول بمحتوى نموذجي تعدّله حسب نشاطك.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={templateId}
+            onChange={(e) => {
+              const id = e.target.value;
+              setTemplateId(id);
+              if (!id) return;
+              const t = KB_TEMPLATES.find((x) => x.id === id);
+              if (t) applyTemplate(t);
+              // Reset to placeholder so the user can re-apply if they want
+              setTimeout(() => setTemplateId(''), 50);
+            }}
+            className="input-boxed h-10 text-sm"
+            style={{ minWidth: '14rem' }}
+          >
+            <option value="">اختر طبيعة العمل...</option>
+            {KB_TEMPLATES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.icon}  {t.label}
+              </option>
+            ))}
+          </select>
+
+          <label
+            className="flex items-center gap-2 text-xs cursor-pointer"
+            style={{ color: 'var(--ink-soft)' }}
+          >
+            <input
+              type="checkbox"
+              checked={overwrite}
+              onChange={(e) => setOverwrite(e.target.checked)}
+              className="w-3.5 h-3.5"
+            />
+            <span>استبدل الحقول الموجودة</span>
+          </label>
+        </div>
+      </div>
+
       <motion.div
         initial="hidden"
         animate="visible"
