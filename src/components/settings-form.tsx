@@ -10,6 +10,7 @@ import { SaveButton } from '@/components/save-button';
 import { toast } from 'sonner';
 import { staggerContainer, staggerItem } from '@/lib/motion';
 import { GULF_TIMEZONES } from '@/lib/timezones';
+import { HolidaysEditor } from '@/components/holidays-editor';
 
 const DAYS: { key: string; label: string }[] = [
   { key: 'sun', label: 'الأحد' },
@@ -191,6 +192,14 @@ export function SettingsForm({ initial, clientId }: { initial: any; clientId: st
         <p className="text-[11px] text-muted-foreground" style={{ color: 'var(--ink-faint)' }}>
           مثال: عيادة أسنان عادية ٣٠–٤٥ دقيقة، صالون شعر ساعة، تقويم أسنان ساعتان.
         </p>
+      </motion.section>
+
+      <motion.section variants={staggerItem} className="space-y-3">
+        <h2 className="text-xl font-medium">العطل والإجازات</h2>
+        <p className="text-sm text-muted-foreground">
+          أيام العطل، الأعياد، إجازات الفريق. البوت ما يحجز فيها ويوجّه العميل لأقرب يوم متاح.
+        </p>
+        <HolidaysEditor />
       </motion.section>
 
       <motion.section variants={staggerItem} className="space-y-3">
