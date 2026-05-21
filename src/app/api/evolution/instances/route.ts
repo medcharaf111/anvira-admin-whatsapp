@@ -5,6 +5,10 @@ import { callInternal, getInternalContext } from '@/lib/internal-api';
 import { logAction } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
+// Evolution createInstance can take 10-20s while the Baileys session spins up.
+// Vercel's default function timeout is 10s on Hobby; bump to 60s so the
+// admin doesn't see a 502 mid-provision.
+export const maxDuration = 60;
 
 /**
  * POST /api/evolution/instances — provisions a fresh Evolution instance
