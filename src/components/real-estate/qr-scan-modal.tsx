@@ -173,8 +173,13 @@ export function QrScanModal({
       // Accept either `instance_name` (canonical backend field) or `instance`
       // (legacy alias). The 409 "already_provisioned" path is treated as
       // success since the existing instance + qr_fetch_url come back too.
+      // Backend may signal it as either `already_provisioned: true` (newer
+      // shape) or `error: 'already_provisioned'` (deployed shape) — accept
+      // both so a future backend refactor doesn't re-break this path.
       const instanceName = json.instance_name ?? json.instance;
-      const ok = res.ok || (res.status === 409 && json.already_provisioned);
+      const alreadyProv =
+        json.already_provisioned === true || json.error === 'already_provisioned';
+      const ok = res.ok || (res.status === 409 && alreadyProv && !!instanceName);
       if (!ok || !instanceName) {
         setErrorMsg(json.error ?? `backend_${res.status}`);
         setPhase('error');
