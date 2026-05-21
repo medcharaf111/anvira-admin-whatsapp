@@ -20,8 +20,13 @@ type Phase =
   | 'error';
 
 interface CreateResponse {
+  // Backend returns `instance_name`; older callers read `instance`. Accept
+  // both so a backend field-name rename doesn't crash the modal.
   instance?: string;
+  instance_name?: string;
   qr_fetch_url?: string;
+  already_provisioned?: boolean;
+  state?: 'qr_pending' | 'connected' | 'disconnected' | 'banned';
   error?: string;
 }
 
@@ -165,21 +170,26 @@ export function QrScanModal({
         body: JSON.stringify({ number_id: numberId }),
       });
       const json = (await res.json().catch(() => ({}))) as CreateResponse;
-      if (!res.ok || !json.instance || !json.qr_fetch_url) {
+      // Accept either `instance_name` (canonical backend field) or `instance`
+      // (legacy alias). The 409 "already_provisioned" path is treated as
+      // success since the existing instance + qr_fetch_url come back too.
+      const instanceName = json.instance_name ?? json.instance;
+      const ok = res.ok || (res.status === 409 && json.already_provisioned);
+      if (!ok || !instanceName) {
         setErrorMsg(json.error ?? `backend_${res.status}`);
         setPhase('error');
         return;
       }
-      setInstance(json.instance);
+      setInstance(instanceName);
       // We proxy the QR through our own admin route to enforce session
       // + RE-only gating, regardless of what backend hands us.
       setQrUrl(
         `/api/evolution/instances/${encodeURIComponent(
-          json.instance
+          instanceName
         )}/qr?t=${Date.now()}`
       );
       setPhase('qr_pending');
-      startPolling(json.instance);
+      startPolling(instanceName);
     } catch {
       setErrorMsg('network_error');
       setPhase('error');
