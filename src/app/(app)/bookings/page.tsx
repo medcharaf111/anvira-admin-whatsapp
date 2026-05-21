@@ -3,6 +3,8 @@ import { requireCurrentClient } from '@/lib/client';
 import { PageHeader } from '@/components/page-header';
 import { RealtimeRefresh } from '@/components/realtime-refresh';
 import { Calendar } from 'lucide-react';
+import { formatViewingDate } from '@/lib/dates';
+import type { CalendarMode } from '@/lib/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,14 +15,17 @@ interface Booking {
   service: string | null;
   starts_at: string;
   status: 'pending' | 'confirmed' | 'cancelled';
+  booking_type: 'appointment' | 'viewing' | null;
+  viewing_mode: 'showroom' | 'site' | 'virtual' | null;
 }
 
 export default async function BookingsPage() {
   const client = await requireCurrentClient();
+  const isRE = client.client_type === 'real_estate';
   const supabase = await createClient();
   const { data } = await supabase
     .from('bookings')
-    .select('*')
+    .select('id, customer_phone, customer_name, service, starts_at, status, booking_type, viewing_mode')
     .eq('client_id', client.id)
     .order('starts_at', { ascending: true });
   const bookings = (data ?? []) as Booking[];
@@ -31,15 +36,40 @@ export default async function BookingsPage() {
     cancelled: bookings.filter((b) => b.status === 'cancelled'),
   };
 
+  // Real-estate flips terminology: "viewings" instead of "appointments".
+  // The underlying table is identical — only the copy changes so the
+  // operator sees the same words their customers use.
+  const labels = isRE
+    ? {
+        eyebrow: '04 / المعاينات',
+        title: 'المعاينات المحجوزة',
+        subtitle: (total: number, ok: number, pend: number) =>
+          `${total} معاينة · ${ok} مؤكّدة · ${pend} في الانتظار`,
+        empty: 'لا توجد معاينات بعد.',
+        confirmed: 'مؤكّدة',
+        pending: 'في الانتظار',
+        cancelled: 'ملغاة',
+      }
+    : {
+        eyebrow: '04 / المواعيد',
+        title: 'المواعيد المحجوزة',
+        subtitle: (total: number, ok: number, pend: number) =>
+          `${total} موعد · ${ok} مؤكّد · ${pend} في الانتظار`,
+        empty: 'لا توجد مواعيد بعد.',
+        confirmed: 'مؤكّدة',
+        pending: 'في الانتظار',
+        cancelled: 'ملغاة',
+      };
+
   return (
     <div>
       <RealtimeRefresh
         subs={[{ table: 'bookings', filter: `client_id=eq.${client.id}` }]}
       />
       <PageHeader
-        eyebrow="03 / المواعيد"
-        title="المواعيد المحجوزة"
-        subtitle={`${bookings.length} موعد · ${groups.confirmed.length} مؤكّد · ${groups.pending.length} في الانتظار`}
+        eyebrow={labels.eyebrow}
+        title={labels.title}
+        subtitle={labels.subtitle(bookings.length, groups.confirmed.length, groups.pending.length)}
       />
 
       {bookings.length === 0 ? (
@@ -53,14 +83,14 @@ export default async function BookingsPage() {
             strokeWidth={1}
           />
           <p style={{ color: 'var(--ink-soft)' }} className="text-sm">
-            لا توجد مواعيد بعد.
+            {labels.empty}
           </p>
         </div>
       ) : (
         <>
-          <Section title="مؤكّدة" items={groups.confirmed} severity="success" timezone={client.business_timezone} />
-          <Section title="في الانتظار" items={groups.pending} severity="warn" timezone={client.business_timezone} />
-          <Section title="ملغاة" items={groups.cancelled} severity="idle" timezone={client.business_timezone} />
+          <Section title={labels.confirmed} items={groups.confirmed} severity="success" timezone={client.business_timezone} isRE={isRE} calendarMode={client.calendar_mode} />
+          <Section title={labels.pending} items={groups.pending} severity="warn" timezone={client.business_timezone} isRE={isRE} calendarMode={client.calendar_mode} />
+          <Section title={labels.cancelled} items={groups.cancelled} severity="idle" timezone={client.business_timezone} isRE={isRE} calendarMode={client.calendar_mode} />
         </>
       )}
     </div>
@@ -72,11 +102,15 @@ function Section({
   items,
   severity,
   timezone,
+  isRE,
+  calendarMode,
 }: {
   title: string;
   items: Booking[];
   severity: 'success' | 'warn' | 'idle';
   timezone: string;
+  isRE: boolean;
+  calendarMode: CalendarMode;
 }) {
   if (items.length === 0) return null;
 
@@ -113,9 +147,23 @@ function Section({
               </div>
             </div>
 
-            {/* Service */}
+            {/* Service / viewing mode */}
             <div className="text-xs max-w-xs" style={{ color: 'var(--ink-soft)' }}>
-              {b.service ?? 'موعد'}
+              {b.service ?? (isRE && b.booking_type === 'viewing' ? 'معاينة' : 'موعد')}
+              {isRE && b.viewing_mode && (
+                <span
+                  className="ms-2 text-[10px] px-1.5 py-0.5"
+                  style={{
+                    background: 'var(--paper-sink)',
+                    border: '1px solid var(--rule)',
+                    borderRadius: '2px',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--ink-faint)',
+                  }}
+                >
+                  {b.viewing_mode}
+                </span>
+              )}
             </div>
 
             {/* Date + status */}
@@ -124,13 +172,12 @@ function Section({
                 className="text-sm tabular"
                 style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink)' }}
               >
-                {new Date(b.starts_at).toLocaleString('ar-AE', {
-                  weekday: 'short',
-                  day: 'numeric',
-                  month: 'short',
-                  hour: '2-digit',
-                  minute: '2-digit',
+                {formatViewingDate(b.starts_at, {
+                  mode: calendarMode,
+                  lang: 'ar',
                   timeZone: timezone,
+                  withTime: true,
+                  withWeekday: true,
                 })}
               </div>
               <div className="mt-1.5">

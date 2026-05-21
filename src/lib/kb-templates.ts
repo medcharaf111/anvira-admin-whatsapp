@@ -1,11 +1,15 @@
 /**
  * Pre-built knowledge-base templates per industry. The owner picks one,
- * we prefill the 8 KB fields with realistic Arabic placeholder content,
+ * we prefill the KB fields with realistic Arabic placeholder content,
  * the owner edits to match their actual business. Drops onboarding time
  * from ~30 min to ~5 min.
  *
- * Field keys must match KbForm's FIELDS array.
+ * Field keys must match KbForm's FIELDS array. Clinic/salon templates fill
+ * the 8 generic fields; real_estate templates fill 17 specialised fields
+ * (commission, payment plans, RERA/REGA license, etc.).
  */
+
+import type { ClientType } from '@/lib/client';
 
 export interface KbTemplate {
   id: string;
@@ -13,22 +17,25 @@ export interface KbTemplate {
   label: string;
   /** Single emoji to anchor the option visually. */
   icon: string;
-  fields: {
-    business_name: string;
-    about: string;
-    services: string;
-    prices: string;
-    location: string;
-    staff: string;
-    policies: string;
-    faq: string;
-  };
+  /**
+   * Vertical this template belongs to. The picker filters by the active
+   * client's client_type so a clinic owner never sees real-estate copy.
+   */
+  client_type: ClientType;
+  /**
+   * Free-form key→string map. Different verticals use different field
+   * sets; the form is responsible for rendering only the keys it knows.
+   * Anything extra is preserved on save (in case backend grows new
+   * fields before the form catches up).
+   */
+  fields: Record<string, string>;
 }
 
 const DENTAL: KbTemplate = {
   id: 'dental',
   label: 'عيادة أسنان',
   icon: '🦷',
+  client_type: 'clinic',
   fields: {
     business_name: 'عيادة [اسم العيادة] لطب الأسنان',
     about:
@@ -111,6 +118,7 @@ const SALON: KbTemplate = {
   id: 'salon',
   label: 'صالون / مركز تجميل',
   icon: '💇',
+  client_type: 'salon',
   fields: {
     business_name: 'صالون [اسم الصالون]',
     about:
@@ -173,64 +181,281 @@ const SALON: KbTemplate = {
   },
 };
 
-const REAL_ESTATE: KbTemplate = {
-  id: 'real_estate',
-  label: 'مكتب عقاري',
-  icon: '🏠',
+const REAL_ESTATE_UAE: KbTemplate = {
+  id: 'real_estate_uae',
+  label: 'مكتب عقاري — الإمارات (Dubai / AUH)',
+  icon: '🏙️',
+  client_type: 'real_estate',
   fields: {
-    business_name: 'مكتب [اسم المكتب] للعقارات',
+    business_name: 'مكتب [اسم المكتب] للوساطة العقارية — Dubai',
     about:
-      'مكتب عقاري متخصص في البيع والإيجار في [المدينة]. نقدم خدمات شاملة: تسويق العقارات، التفاوض، التوثيق، والاستشارة العقارية لكلا المشتري والبائع.',
-    services: `- بيع شقق وفلل
-- إيجار سكني (شقق / فلل / استوديوهات)
-- إيجار تجاري (محلات / مكاتب / مستودعات)
-- استشارة عقارية واستثمار
-- تقييم عقاري
-- تسويق وعرض العقار للبائع
-- مرافقة في الزيارات المعاينة
-- صياغة العقود ومراجعتها`,
-    prices: `العمولة:
-- بيع: 2.5٪ من قيمة العقار (تتحملها كلا الطرفين بالتساوي)
-- إيجار سكني: نصف شهر
-- إيجار تجاري: نصف شهر إلى شهر كامل حسب المدة
+      'وسيط عقاري معتمد في دبي وأبوظبي، نخدم المستثمرين المحليين والخليجيين والأجانب (NRIs / EU expats / Russians). نتخصص في Off-plan launches، مبيعات السوق الثانوي، والإيجارات التنفيذية. مرخّصين من RERA — Dubai Land Department.',
+    property_types_handled:
+      'شقق (Studio → 4BR Penthouse) · فلل (Townhouse / Standalone) · Off-plan لاطلاقات Emaar / DAMAC / Sobha / Aldar · تجاري (Office / Retail) · أراضي سكنية في مناطق Freehold (Dubai Marina, JVC, Business Bay, Yas Island, Saadiyat).',
+    developer_affiliations:
+      'Emaar Properties · DAMAC · Aldar Properties · Sobha Realty · Meraas · Nakheel · Dubai Holding · Azizi Developments · Binghatti · Select Group. نوصل العميل مباشرة بمكتب المطوّر، وعمولة Off-plan يدفعها المطوّر — العميل لا يدفع شيء إضافي.',
+    prices: `أمثلة على الأسعار الحالية (إرشادية — تتغير أسبوعياً):
+- Studio في JVC أو Business Bay: AED 700K – 1.1M
+- 1BR في Dubai Marina: AED 1.4M – 2.2M
+- 2BR في Downtown / Burj Area: AED 2.5M – 4.5M
+- Townhouse 3BR في DAMAC Hills 2 / The Valley: AED 2.2M – 3.5M
+- Villa 4-5BR في Tilal Al Ghaf / Arabian Ranches: AED 5M – 12M
+- Off-plan launches: Down payment يبدأ من 10% فقط
 
-استشارة عقارية بدون شراء: 500 ريال للساعة.
-عرض الإعلانات والتسويق على المواقع الكبرى مجاناً للبائعين الموقّعين معنا.`,
-    location: `العنوان: [اكتب عنوان المكتب]
-المعلم: [مقابل / بجانب]
-ساعات الزيارة: نفضّل الموعد المسبق
-رقم المكتب: [اكتب الرقم]
-البريد الإلكتروني: [اكتب البريد]`,
-    staff: `- [الاسم] — المدير، خبرة [X] سنوات في السوق العقاري
-- [الاسم] — مستشار عقاري — تخصص شقق وسكن
-- [الاسم] — مستشار عقاري — تخصص تجاري واستثمار
+أسعار الإيجار السنوي:
+- Studio JVC: AED 45K – 65K
+- 1BR Marina: AED 80K – 130K
+- 2BR Downtown: AED 140K – 220K`,
+    commission_structure: `العمولة:
+- مبيعات السوق الثانوي: 2% من قيمة العقار + 5% VAT (يدفعها المشتري عادة في دبي)
+- Off-plan / Pre-launch: العمولة يدفعها المطوّر بالكامل — العميل لا يدفع للمكتب
+- إيجار سكني: 5% من قيمة العقد السنوي + 5% VAT
+- إيجار تجاري: 5–10% حسب المدة
 
-كل المستشارين مرخّصين من الهيئة العامة للعقار.`,
-    policies: `العمولة:
-- لا نأخذ عمولة قبل إتمام الصفقة
-- عقد المعاينة لا يلزم العميل بالشراء
+ملاحظة: لا نأخذ "Reservation fee" قبل توقيع MOU. أي مبلغ يُدفع للمكتب يُسلَّم بإيصال رسمي مختوم.`,
+    payment_plan_explanation: `خطط السداد الشائعة على Off-plan في الإمارات:
+- 60/40: ٦٠٪ خلال البناء · ٤٠٪ عند التسليم
+- 50/50: ٥٠٪ خلال البناء · ٥٠٪ عند التسليم
+- 80/20: ٨٠٪ خلال البناء · ٢٠٪ عند التسليم (سعر أقل عادة)
+- 40/60 Post-Handover: ٤٠٪ خلال البناء · ٦٠٪ مقسّطة على ٣-٥ سنوات بعد التسليم
+- 1%/شهر: دفعة شهرية ١٪ خلال البناء — تناسب الموظفين والعائلات
+- Cash deal: خصم ٥-١٠٪ على السعر الكامل
 
-العقود:
-- نوقّع عقد وساطة موحّد قبل البدء في تسويق أي عقار
-- جميع العقود موثقة وفق نظام التوثيق المعتمد
+كل خطة لها سيناريو يناسبها — نشرحها للعميل قبل التوقيع.`,
+    roi_ranges: `معدلات العائد (إرشادية، ليست ضمانات):
+- إيجار سنوي صافي (Net Yield): ٥٪ – ٨٪ في Marina / JVC / Downtown
+- النمو الرأسمالي (Capital Appreciation): ٧٪ – ١٢٪ سنوياً في المناطق الناشئة آخر ٣ سنوات
+- Short-term rental (Airbnb): ٨٪ – ١٢٪ صافي، يحتاج إدارة احترافية
+- Off-plan على Handover: ٢٠٪ – ٤٠٪ ارتفاع متوقع بين Launch و Handover حسب المشروع
 
-الخصوصية:
-- لا نشارك بيانات العملاء مع أي طرف ثالث
-- صور وعناوين العقارات تُعرض فقط بعد إذن المالك`,
-    faq: `س: هل العقار اللي عرضتوه على إنستغرام لا زال متاح؟
-ج: نتحقق من الفريق ونرجع لك بأقرب وقت.
+ملاحظة قانونية: الأرقام تاريخية ولا تضمن النتائج المستقبلية — لكل عقار سيناريو منفصل.`,
+    financing_partners: `بنوك التمويل العقاري المتعاوِنين معنا:
+- Emirates NBD — حتى ٨٠٪ تمويل للمواطنين / ٧٥٪ للمقيمين
+- First Abu Dhabi Bank (FAB) — أسرع موافقات، يدعم Off-plan
+- Mashreq Bank — خيارات Islamic finance
+- ADCB — للموظفين الحكوميين بشروط مميزة
+- HSBC UAE — للعملاء العالميين / NRIs
+- Dubai Islamic Bank — Ijara متوافقة شرعاً
 
-س: كم العمولة بالضبط؟
-ج: 2.5٪ من قيمة البيع، تُقسم بين البائع والمشتري.
+نوصلك بـ Mortgage Advisor مجاناً للحصول على Pre-approval خلال 48 ساعة.`,
+    handover_timeline: `جداول التسليم الحالية (Q2 2026 → Q4 2028):
+- Emaar Beachfront Phase 5: Q4 2026
+- DAMAC Lagoons (Malta / Venice): Q1 – Q3 2027
+- Sobha Hartland II: Q2 2027
+- Aldar Saadiyat Lagoons: Q1 2028
+- Azizi Riviera Final Phase: Q3 2026
 
-س: تقدرون توصلوا لي تمويل بنكي؟
-ج: نتعاون مع عدة بنوك، نقدر نوصلك بالخيارات المناسبة لك.
+ملاحظة: التواريخ تعتمد على إعلانات المطوّرين الرسمية. تأخير ٦-١٢ شهر شائع في السوق ولا يعتبر إخلال جوهري بالعقد.`,
+    target_investor_profile: `الشرائح اللي نخدمها:
+- GCC nationals — استثمار طويل المدى أو سكن
+- NRIs (Indian / Pakistani / Bangladeshi) — Investor Visa + إيجار
+- Russian / CIS investors — Cash deals، تنويع محفظة
+- European expats (UK / German / French) — End-user أو second home
+- Chinese investors — Off-plan في Downtown / Marina
+- المقيمين في الإمارات (Salary AED 15K+) — تمويل مع نسبة سداد ٥٠٪`,
+    broker_license: `RERA Permit: [أدخل رقم BRN الخاص بالمكتب]
+Trade License: [أدخل رقم رخصة DET]
+Responsible Broker: [الاسم الكامل + رقم BRN الشخصي]
+انتهاء الترخيص: [التاريخ]
+العنوان المسجّل: [العنوان الموثّق لدى DLD]
 
-س: هل تسوون مرافقة معاينة في عدة عقارات؟
-ج: نعم، رتّب لنا 3-5 عقارات في زيارة واحدة وما نأخذ منك شي إلا بعد قرار الشراء.
+نضع رقم RERA على كل إعلان (Bayut / Property Finder / Dubizzle / Instagram). الإعلان بدون رقم RERA مخالف قانوناً.`,
+    location: `المكتب الرئيسي: [أدخل عنوان المكتب الكامل]
+المنطقة: [Business Bay / DIFC / JLT / etc.]
+ساعات العمل: السبت → الخميس · 9 صباحاً – 7 مساءً
+الجمعة: مغلق (مفتوح Showroom Off-plan فقط في الجمعات الكبرى)
+رقم المكتب: [+971 4 ...]
+WhatsApp Business: [+971 50 ...]
+Google Maps: [اللصق الرابط هنا]`,
+    staff: `- [الاسم] — Managing Director, RERA BRN [...] · خبرة ١٥ سنة
+- [الاسم] — Sales Manager, Off-plan specialist · ٢٠ مشروع مغلق ٢٠٢٤-٢٠٢٥
+- [الاسم] — Senior Property Consultant, Marina + Downtown
+- [الاسم] — Leasing Manager
+- [الاسم] — Client Relations · يتحدث Russian + English + Arabic
 
-س: هل تتعاملون مع العقارات خارج المدينة؟
-ج: تخصصنا في [المدينة] لكن لو الطلب جاد ممكن نرتّب.`,
+كل وسطائنا مرخّصين بـ BRN فردي ومسجّلين في Trakheesi.`,
+    policies: `Cooling-off period:
+- على Off-plan: 14 يوم من توقيع SPA — حق الانسحاب مع استرداد كامل بعد خصم رسوم إدارية ٥-١٠٪
+- على Secondary Market: لا يوجد cooling-off قانوني — Due Diligence مهم قبل التوقيع
+
+NOC للبيع:
+- لا يمكن بيع عقار قبل ٤٠٪ من السداد (سياسة معظم المطوّرين)
+- NOC من المطوّر إلزامي قبل تسجيل البيع في Land Department
+
+Escrow:
+- جميع مدفوعات Off-plan تذهب إلى Escrow Account مسجّل لدى RERA
+- لا ندفع المطوّر مباشرة أبداً — التحويل دائماً لحساب Escrow
+
+GDPR / PDPL:
+- بيانات العميل لا تُشارك مع طرف ثالث بدون موافقة كتابية
+- WhatsApp opt-in إلزامي للتسويق — STOP يوقف كل الرسائل فوراً`,
+    hours: `السبت – الخميس: 9:00 صباحاً – 7:00 مساءً
+الجمعة: مغلق (طلبات WhatsApp تُرَدّ خلال ساعتين)
+رمضان: 10:00 صباحاً – 4:00 مساءً، ثم 8:00 مساءً – 11:00 مساءً
+العطل الرسمية: مغلق (Eid، National Day، New Year)`,
+    faq: `س: هل أقدر أشتري عقار في دبي بدون فيزا إقامة؟
+ج: نعم. الأجانب يقدرون يشترون Freehold في المناطق المعتمدة بدون إقامة. شراء ٢ مليون درهم أو أكثر يفتح Golden Visa لـ ١٠ سنوات.
+
+س: كم رسوم Land Department؟
+ج: ٤٪ من قيمة العقار + AED 580 رسوم تسجيل. تُدفع مرة واحدة عند نقل الملكية.
+
+س: Off-plan أحسن أم Ready property؟
+ج: Off-plan يعطي capital appreciation أعلى لكن انتظار ٢-٤ سنوات. Ready يعطي إيجار فوري لكن سعره أعلى ٢٠-٣٠٪. نختار حسب هدفك.
+
+س: تقدرون توصلوني بمحامي عقاري؟
+ج: نعم، نتعاون مع عدة مكاتب قانونية معتمدة من DLD، نرتب لك استشارة قبل أي توقيع.
+
+س: إيش مدة الـ Service Charges؟
+ج: تختلف من ٨ إلى ٢٥ AED/sqft سنوياً. نوصلك بـ Service Charge Sheet الرسمي لكل مشروع قبل الشراء.
+
+س: هل في Capital Gains Tax؟
+ج: لا — الإمارات لا تفرض ضريبة دخل أو CGT على الأفراد. ٥٪ VAT تُطبَّق فقط على الإيجارات التجارية والعمولة.`,
+  },
+};
+
+const REAL_ESTATE_KSA: KbTemplate = {
+  id: 'real_estate_ksa',
+  label: 'مكتب عقاري — السعودية (Riyadh / Jeddah)',
+  icon: '🏗️',
+  client_type: 'real_estate',
+  fields: {
+    business_name: 'مكتب [اسم المكتب] العقاري — Riyadh',
+    about:
+      'مكتب وساطة عقارية مرخّص من الهيئة العامة للعقار (REGA) في المملكة العربية السعودية. نخدم مشتري Vision 2030 من سكان الرياض وجدة والدمام، إضافة للمستثمرين الخليجيين والمصريين والمقيمين. تخصصنا في المشاريع الكبرى: ROSHN، الدار العقارية، Retal Urban Development.',
+    property_types_handled:
+      'شقق سكنية (٢-٤ غرف) · فلل (دوبلكس / مستقلة) · Off-plan في مشاريع PIF (NEOM, Diriyah, ROSHN) · أراضي سكنية وتجارية · مكاتب وعقارات إدارية في الرياض الجديدة.',
+    developer_affiliations:
+      'ROSHN (PIF) · Dar Al Arkan · Retal Urban Development · NHC (National Housing Company) · Diriyah Gate Development Authority · Sela · Al Akaria · Jabal Omar · ABDUL LATIF JAMEEL Real Estate. كل مشاريعنا داخل برامج Sakani أو Wafi المعتمدة.',
+    prices: `أمثلة على الأسعار الحالية في الرياض (إرشادية):
+- شقة ٣ غرف في ROSHN Sedra (شمال الرياض): SAR 850K – 1.4M
+- شقة ٤ غرف في Dar Al Arkan / Shams Al Arous: SAR 1.2M – 2M
+- فيلا دوبلكس في NHC (الياسمين / النرجس): SAR 1.5M – 2.5M
+- فيلا مستقلة في حي الملقا / السفارات: SAR 4M – 12M
+- أرض سكنية ٦٠٠م في شمال الرياض: SAR 1.2M – 2.8M
+- Off-plan Diriyah Square / Wadi Safar: حسب الإطلاق
+
+جدة:
+- شقة في الشاطئ / الكورنيش: SAR 950K – 2.2M
+- فيلا في حي الزهراء / الروضة: SAR 2.5M – 6M
+
+الإيجار السنوي (الرياض):
+- شقة ٣ غرف العليا / الياسمين: SAR 55K – 90K
+- فيلا دوبلكس: SAR 120K – 180K`,
+    commission_structure: `العمولة وفقاً لائحة REGA:
+- مبيعات السوق الثانوي: ٢.٥٪ من قيمة العقار (يدفعها البائع، أحياناً تُقسم نصف-نصف باتفاق)
+- Off-plan / مشاريع المطورين: العمولة يدفعها المطوّر — العميل لا يدفع شيء
+- إيجار سكني: نصف شهر أو ٢.٥٪ من العقد السنوي
+- إيجار تجاري: ٥٪ من العقد السنوي
+
+VAT: ١٥٪ على العمولة (بناءً على نظام ضريبة القيمة المضافة السعودي).
+لا نأخذ أي رسوم تسجيل أو "حجز" قبل المعاينة وتوقيع عقد الوساطة الموحّد من REGA.`,
+    payment_plan_explanation: `خطط السداد الشائعة في السعودية:
+- Off-plan ROSHN: ٥٪ حجز · ٢٠٪ خلال البناء · ٧٥٪ عند التسليم (تمويل بنكي)
+- Dar Al Arkan: ١٠٪ مقدّم · ٤٠٪ مقسّط · ٥٠٪ عند التسليم
+- Retal: ١٥٪ + ٨٥٪ من خلال تمويل عقاري مدعوم من صندوق التنمية العقاري (REDF)
+- شراء كاش: خصم ٣-٧٪ ممكن في معظم المشاريع
+- Sakani: قروض مدعومة لمواطنين سعوديين، DP ٥٪ فقط
+
+كل مشتري سعودي مؤهل لـ:
+- دعم REDF (حتى SAR 500K بدون فوائد)
+- Wafi/Sakani priority allocation`,
+    roi_ranges: `معدلات العائد في السوق السعودي (إرشادية):
+- إيجار سنوي صافي: ٥٪ – ٧٪ في الرياض شمال، ٤٪ – ٦٪ في جدة
+- النمو الرأسمالي: ١٠٪ – ٢٠٪ سنوياً في مناطق Vision 2030 (Diriyah, KAFD, Qiddiya proximity)
+- مشاريع NEOM / Red Sea Project: long-term plays، عوائد متوقعة بعد ٢٠٢٨
+- Short-term rental للحجاج (جدة / مكة): ٨٪ – ١٢٪ موسمياً
+
+ملاحظة: السوق السعودي بمرحلة نمو غير مسبوقة بسبب Vision 2030 — لكن الأرقام التاريخية لا تضمن المستقبل.`,
+    financing_partners: `بنوك التمويل العقاري المعتمدة:
+- Al Rajhi Bank — أكبر مقدّم تمويل عقاري إسلامي
+- Riyad Bank — موافقات سريعة، يدعم مشاريع ROSHN
+- Saudi National Bank (SNB) — للحسابات الحكومية وأرامكو
+- Bank Albilad — Murabaha + Ijara
+- Saudi Investment Bank (SAIB)
+- Saudi Real Estate Refinance Company (SRC) — eligible للدعم الحكومي
+
+نوصل المشتري بمستشار تمويل خلال يوم واحد، Pre-approval خلال ٤٨-٧٢ ساعة.
+المواطنين السعوديين مؤهلين لدعم وزارة الإسكان (Sakani / REDF subsidy).`,
+    handover_timeline: `جداول التسليم الحالية في السعودية:
+- ROSHN Sedra Phase 3: Q3 2026
+- ROSHN Warefa: Q1 2027
+- Dar Al Arkan Shams Ar Riyadh: Q4 2026 – Q2 2027
+- Retal Sahari: Q2 2027
+- Diriyah Square villas: Q1 – Q4 2028
+- NHC الجوهرة: Q3 2026
+
+التواريخ تعتمد على إعلانات المطوّرين الرسمية. مشاريع PIF لها التزام أقوى بالجدول من الخاصة.`,
+    target_investor_profile: `الشرائح اللي نخدمها:
+- مواطنون سعوديون — Sakani eligible (DP ٥٪ + REDF subsidy)
+- موظفو أرامكو / SABIC — تسهيلات بنكية خاصة
+- مواطنون خليجيون (GCC) — ملكية كاملة مسموحة
+- مصريون / أردنيون / لبنانيون مقيمين — Investor Premium Residency (>= SAR 4M)
+- مستثمرون من الإمارات / Kuwait — Off-plan في Riyadh New
+- شركات (مكاتب إدارية في KAFD / ITCC)`,
+    broker_license: `REGA FAL License: [أدخل رقم الفال]
+رخصة وساطة سكنية: [الرقم]
+رخصة وساطة تجارية: [الرقم]
+السجل التجاري: [رقم CR]
+انتهاء الترخيص: [التاريخ]
+الوسيط المسؤول: [الاسم + رقم الفال الشخصي]
+
+كل إعلان يحمل رقم الفال (FAL ID) — الإعلان بدون فال مخالفة وفق نظام REGA ويُغرَّم.`,
+    location: `المكتب الرئيسي: [أدخل العنوان]
+الحي: [العليا / الياسمين / الملز / etc.]
+ساعات العمل: السبت → الخميس · 9 صباحاً – 9 مساءً
+الجمعة: 4 عصراً – 9 مساءً
+رقم المكتب: [+966 11 ...]
+WhatsApp: [+966 5 ...]
+Google Maps: [الرابط]
+إيميل: [البريد الرسمي المسجّل في REGA]`,
+    staff: `- [الاسم] — المدير العام، وسيط معتمد FAL [...] · خبرة ١٢ سنة
+- [الاسم] — مدير المبيعات Off-plan
+- [الاسم] — مستشار عقاري — تخصص مشاريع PIF
+- [الاسم] — مستشار إيجارات
+- [الاسم] — خدمة عملاء — يتحدث Arabic + English
+
+كل وسطائنا مسجّلين في الهيئة العامة للعقار برقم فال فردي.`,
+    policies: `Cooling-off period:
+- Off-plan: حسب لائحة REGA، ١٠ أيام عمل من توقيع عقد الحجز — إمكانية الانسحاب مع استرداد ٩٠٪
+- Resale: لا يوجد cooling-off قانوني
+
+NOC للبيع:
+- مشاريع ROSHN / Diriyah: NOC من المطوّر إلزامي
+- بعض المشاريع تتطلب ٣٠-٥٠٪ سداد قبل النقل
+
+Escrow & دفعات:
+- كل دفعة Off-plan تذهب لحساب ضمان معتمد من REGA + ساما
+- لا ندفع المطوّر مباشرة — التحويل دائماً لحساب الضمان
+
+نظام حماية البيانات (PDPL):
+- موافقة العميل صريحة قبل أي تسويق على WhatsApp
+- كلمة "إيقاف" أو "STOP" توقف كل الرسائل فوراً
+- البيانات تُخزَّن داخل المملكة (data_region: KSA)
+
+عقد الوساطة:
+- موحّد من REGA، يوقّعه البائع والمشتري قبل بدء أي تسويق
+- العمولة لا تُستحَق إلا بعد إتمام النقل الفعلي`,
+    hours: `السبت – الخميس: 9:00 صباحاً – 9:00 مساءً
+الجمعة: 4:00 عصراً – 9:00 مساءً
+رمضان: 10:00 صباحاً – 4:00 عصراً، ثم 8:00 مساءً – 1:00 صباحاً
+العطل الرسمية: مغلق (Eid Al Fitr، Eid Al Adha، National Day، Founding Day)`,
+    faq: `س: هل أقدر أشتري عقار في السعودية وأنا غير سعودي؟
+ج: نعم — للمقيمين الحاصلين على Premium Residency أو ضمن المشاريع المعتمدة للأجانب. شراء عقار بقيمة SAR 4M أو أكثر يفتح Premium Residency.
+
+س: كم رسوم الضريبة العقارية؟
+ج: ضريبة التصرفات العقارية (RETT) ٥٪ من قيمة البيع — يدفعها البائع عادة، لكنها قابلة للتفاوض في العقد.
+
+س: ROSHN أحسن أم Dar Al Arkan؟
+ج: ROSHN مدعوم من PIF — جودة وضمانات أعلى. Dar Al Arkan خاصة لكن أطول خبرة وأسعارها مرنة. نختار حسب الميزانية والموقع.
+
+س: تقدرون توصلوني بدعم Sakani؟
+ج: نعم، لو مواطن سعودي وأول عقار، نوصلك بمستشار Sakani المعتمد ونرتب الأوراق.
+
+س: متى أحسن وقت لشراء Off-plan في الرياض؟
+ج: مرحلة Pre-launch الأولى عادة أرخص ٢٠-٣٠٪ من Launch الرسمي. نخبر عملاءنا أول واحد لمّا يفتح Pre-launch.
+
+س: العقد بالعربي أم بالإنجليزي؟
+ج: كل العقود الرسمية باللغة العربية وفق نظام REGA. نوفر ترجمة إنجليزية تفسيرية، لكن النسخة العربية هي المعتمدة قانونياً.`,
   },
 };
 
@@ -238,6 +463,7 @@ const TUTORING: KbTemplate = {
   id: 'tutoring',
   label: 'مركز تعليمي / دروس خصوصية',
   icon: '📚',
+  client_type: 'clinic',
   fields: {
     business_name: 'مركز [اسم المركز] التعليمي',
     about:
@@ -301,6 +527,7 @@ const VET: KbTemplate = {
   id: 'vet',
   label: 'عيادة بيطرية',
   icon: '🐾',
+  client_type: 'clinic',
   fields: {
     business_name: 'العيادة البيطرية [اسم العيادة]',
     about:
@@ -371,6 +598,7 @@ const AUTO_REPAIR: KbTemplate = {
   id: 'auto_repair',
   label: 'مركز صيانة سيارات',
   icon: '🚗',
+  client_type: 'clinic',
   fields: {
     business_name: 'مركز [اسم المركز] لصيانة السيارات',
     about:
@@ -438,8 +666,18 @@ const AUTO_REPAIR: KbTemplate = {
 export const KB_TEMPLATES: KbTemplate[] = [
   DENTAL,
   SALON,
-  REAL_ESTATE,
+  REAL_ESTATE_UAE,
+  REAL_ESTATE_KSA,
   TUTORING,
   VET,
   AUTO_REPAIR,
 ];
+
+/**
+ * Return only the templates that make sense for the active client.
+ * Real-estate clients should never see clinic copy and vice-versa, since
+ * the field schemas differ entirely.
+ */
+export function templatesFor(clientType: ClientType): KbTemplate[] {
+  return KB_TEMPLATES.filter((t) => t.client_type === clientType);
+}

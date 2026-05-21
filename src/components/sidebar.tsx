@@ -18,46 +18,169 @@ import {
   Menu,
   X,
   Crown,
+  Users,
+  Building2,
+  Home,
+  DollarSign,
+  Shield,
+  type LucideIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { ThemeToggle } from '@/components/theme-toggle';
+import type { ClientType } from '@/lib/client';
 
-const NAV_GROUPS = [
-  {
-    label: 'العمليات',
-    items: [
-      { href: '/conversations', label: 'المحادثات', icon: MessageSquare, num: '01' },
-      { href: '/alerts', label: 'التنبيهات', icon: Bell, badgeKey: 'alerts' as const, num: '02' },
-      { href: '/calendar', label: 'التقويم', icon: CalendarDays, num: '03' },
-      { href: '/bookings', label: 'المواعيد', icon: Calendar, num: '04' },
-      { href: '/analytics', label: 'التحليلات', icon: BarChart3, num: '05' },
-    ],
-  },
-  {
-    label: 'الإعداد',
-    items: [
-      { href: '/knowledge-base', label: 'قاعدة المعرفة', icon: BookOpen, num: '06' },
-      { href: '/templates', label: 'الردود الجاهزة', icon: FileText, num: '07' },
-      { href: '/settings', label: 'الإعدادات', icon: Settings, num: '08' },
-      { href: '/mock-phone', label: 'هاتف التجربة', icon: Smartphone, num: '09' },
-      { href: '/audit', label: 'سجل النشاط', icon: ScrollText, num: '10' },
-    ],
-  },
-];
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  badgeKey?: 'alerts' | 'hot_leads';
+  /** If set, only render when client_type matches. */
+  onlyFor?: ClientType[];
+  /** If true, only operators see this item regardless of group. */
+  founderOnly?: boolean;
+}
 
-const FOUNDER_GROUP = {
-  label: 'FOUNDERS',
+interface NavGroup {
+  /** Arabic primary label */
+  label: string;
+  /** Latin secondary (mono caps, English, mirrors landing eyebrows) */
+  labelLat: string;
+  items: NavItem[];
+  onlyFor?: ClientType[];
+}
+
+/* ------------------------------------------------------------------ *
+ * Workflow grouping — five buckets ordered by daily-use frequency.
+ *
+ * The brief says: numbers are nav ORDER, never labels. Visual cue for
+ * the active page is the gold left-border + bold weight. Groups are
+ * separated by a thin rule + ~12px gap.
+ * ------------------------------------------------------------------ */
+
+// 1. Daily ops — 80% of operator time. Polished hardest.
+const DAILY_OPS: NavGroup = {
+  label: 'العمليات اليومية',
+  labelLat: 'DAILY OPS',
   items: [
-    { href: '/operator', label: 'إدارة العملاء', icon: Crown, num: '00' },
+    { href: '/conversations', label: 'المحادثات', icon: MessageSquare },
+    { href: '/alerts', label: 'التنبيهات', icon: Bell, badgeKey: 'alerts' },
+    {
+      href: '/leads',
+      label: 'العملاء المحتملين',
+      icon: Users,
+      badgeKey: 'hot_leads',
+      onlyFor: ['real_estate'],
+    },
+    {
+      href: '/viewings',
+      label: 'المعاينات',
+      icon: Building2,
+      onlyFor: ['real_estate'],
+    },
+    { href: '/calendar', label: 'التقويم', icon: CalendarDays },
+    { href: '/bookings', label: 'المواعيد', icon: Calendar },
   ],
 };
 
+// 2. Catalog — configured at onboarding, edited weekly.
+const CATALOG: NavGroup = {
+  label: 'الكتالوج',
+  labelLat: 'CATALOG',
+  onlyFor: ['real_estate'],
+  items: [
+    { href: '/properties', label: 'العقارات', icon: Building2 },
+    { href: '/projects', label: 'المشاريع', icon: Home },
+    { href: '/payment-plans', label: 'خطط السداد', icon: DollarSign },
+  ],
+};
+
+// 3. Compliance — occasional, regulator-friendly. KYC entry is
+// conditionally appended based on per-tenant `kyc_enabled`.
+const COMPLIANCE_BASE: NavGroup = {
+  label: 'الامتثال',
+  labelLat: 'COMPLIANCE',
+  onlyFor: ['real_estate'],
+  items: [
+    { href: '/forms', label: 'النماذج (RERA)', icon: FileText },
+    { href: '/audit', label: 'سجل النشاط', icon: ScrollText },
+  ],
+};
+
+const KYC_ITEM: NavItem = {
+  href: '/kyc',
+  label: 'الامتثال (KYC)',
+  icon: Shield,
+  onlyFor: ['real_estate'],
+};
+
+// 4. Insights
+const INSIGHTS: NavGroup = {
+  label: 'التحليلات',
+  labelLat: 'INSIGHTS',
+  items: [{ href: '/analytics', label: 'التحليلات', icon: BarChart3 }],
+};
+
+// 5. Setup — configured once at onboarding, rarely touched after.
+const SETUP: NavGroup = {
+  label: 'الإعداد',
+  labelLat: 'SETUP',
+  items: [
+    { href: '/knowledge-base', label: 'قاعدة المعرفة', icon: BookOpen },
+    { href: '/templates', label: 'الردود الجاهزة', icon: FileText },
+    { href: '/settings', label: 'الإعدادات', icon: Settings },
+  ],
+};
+
+// Tools / internal — last group, includes founder-only entries.
+const TOOLS: NavGroup = {
+  label: 'الأدوات',
+  labelLat: 'TOOLS',
+  items: [
+    { href: '/mock-phone', label: 'هاتف التجربة', icon: Smartphone },
+    { href: '/operator', label: 'إدارة العملاء', icon: Crown, founderOnly: true },
+  ],
+};
+
+function buildGroups(
+  clientType: ClientType,
+  flags: { kycEnabled: boolean; isOperator: boolean }
+): NavGroup[] {
+  const compliance: NavGroup = {
+    ...COMPLIANCE_BASE,
+    items:
+      clientType === 'real_estate' && flags.kycEnabled
+        ? [KYC_ITEM, ...COMPLIANCE_BASE.items]
+        : COMPLIANCE_BASE.items,
+  };
+
+  const all: NavGroup[] = [DAILY_OPS, CATALOG, compliance, INSIGHTS, SETUP, TOOLS];
+
+  // Filter by client_type at group level
+  return all
+    .filter((g) => !g.onlyFor || g.onlyFor.includes(clientType))
+    .map((g) => ({
+      ...g,
+      items: g.items
+        .filter((i) => !i.onlyFor || i.onlyFor.includes(clientType))
+        .filter((i) => !i.founderOnly || flags.isOperator),
+    }))
+    // Drop groups that ended up empty after filtering (e.g. Tools with no
+    // operator for a non-operator user might still keep mock-phone, so
+    // this is a safety net).
+    .filter((g) => g.items.length > 0);
+}
+
 export function Sidebar({
   alertCount = 0,
+  hotLeadCount = 0,
   isOperator = false,
+  clientType = 'clinic',
+  kycEnabled = false,
 }: {
   alertCount?: number;
+  hotLeadCount?: number;
   isOperator?: boolean;
+  clientType?: ClientType;
+  kycEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -68,6 +191,8 @@ export function Sidebar({
     router.push('/login');
   }
 
+  const groups = buildGroups(clientType, { kycEnabled, isOperator });
+
   const navContent = (
     <>
       {/* Wordmark */}
@@ -75,7 +200,7 @@ export function Sidebar({
         <div className="flex items-center gap-2.5">
           <span
             className="w-2 h-2 rounded-full"
-            style={{ background: 'var(--primary-glow)' }}
+            style={{ background: 'var(--gold-soft)' }}
           />
           <div
             className="text-[15px] font-semibold"
@@ -84,33 +209,47 @@ export function Sidebar({
             أنفيرا
           </div>
           <span
-            className="text-[11px]"
-            style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)', letterSpacing: '0.08em' }}
+            className="text-[10px]"
+            style={{
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--ink-faint)',
+              letterSpacing: '0.12em',
+            }}
           >
             · OPERATOR
           </span>
         </div>
       </div>
 
-      {/* Nav groups */}
-      <nav className="flex-1 px-3 py-6 space-y-7 overflow-y-auto">
-        {[...(isOperator ? [FOUNDER_GROUP] : []), ...NAV_GROUPS].map((group) => (
-          <div key={group.label}>
+      {/* Nav groups — visually separated by thin rule + 12px gap */}
+      <nav className="flex-1 px-3 py-5 overflow-y-auto no-scrollbar">
+        {groups.map((group, gi) => (
+          <div
+            key={group.labelLat}
+            className={gi > 0 ? 'pt-3 mt-3' : ''}
+            style={
+              gi > 0
+                ? { borderTop: '1px solid var(--rule-soft)' }
+                : undefined
+            }
+          >
             <div
-              className="px-3 mb-3 text-[10px]"
+              className="px-3 mb-2 text-[9.5px] flex items-center gap-2"
               style={{
                 fontFamily: 'var(--font-mono)',
                 color: 'var(--ink-faint)',
-                letterSpacing: '0.14em',
+                letterSpacing: '0.16em',
                 textTransform: 'uppercase',
               }}
             >
-              {group.label}
+              <span>{group.labelLat}</span>
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-px">
               {group.items.map((item) => {
                 const active = pathname.startsWith(item.href);
-                const count = 'badgeKey' in item && item.badgeKey === 'alerts' ? alertCount : 0;
+                let count = 0;
+                if (item.badgeKey === 'alerts') count = alertCount;
+                else if (item.badgeKey === 'hot_leads') count = hotLeadCount;
                 return (
                   <Link
                     key={item.href}
@@ -119,40 +258,30 @@ export function Sidebar({
                     className="relative flex items-center gap-3 px-3 py-2 text-sm group"
                     style={{
                       color: active ? 'var(--ink)' : 'var(--ink-soft)',
+                      fontWeight: active ? 600 : 400,
                       background: active ? 'var(--paper-hover)' : 'transparent',
                       borderRadius: '3px',
-                      transition: 'all 0.15s ease',
+                      transition: 'background 0.15s ease, color 0.15s ease',
                     }}
                     aria-current={active ? 'page' : undefined}
                   >
-                    {/* Active indicator — left bar (RTL: right) */}
+                    {/* Active indicator — gold left-bar (RTL: right edge) */}
                     {active && (
                       <motion.span
                         layoutId="sidebar-active"
                         className="absolute top-1/2 -translate-y-1/2 w-[2px] h-6"
                         style={{
                           insetInlineEnd: '-12px',
-                          background: 'var(--primary-glow)',
+                          background: 'var(--gold-soft)',
                         }}
                         transition={{ type: 'spring', stiffness: 400, damping: 32 }}
                       />
                     )}
 
-                    <span
-                      className="text-[10px] tabular shrink-0"
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        color: active ? 'var(--primary-glow)' : 'var(--ink-faint)',
-                        width: '1.25rem',
-                      }}
-                    >
-                      {item.num}
-                    </span>
-
                     <item.icon
                       className="w-4 h-4 shrink-0"
-                      strokeWidth={1.5}
-                      style={{ color: active ? 'var(--primary-glow)' : 'currentColor' }}
+                      strokeWidth={active ? 1.75 : 1.5}
+                      style={{ color: active ? 'var(--gold-soft)' : 'currentColor' }}
                     />
 
                     <span className="flex-1 truncate">{item.label}</span>
@@ -161,11 +290,14 @@ export function Sidebar({
                       <motion.span
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
-                        className="min-w-[20px] h-[20px] px-1.5 flex items-center justify-center text-[10px] font-medium tabular"
+                        className="min-w-[18px] h-[18px] px-1.5 flex items-center justify-center text-[10px] font-medium tabular"
                         style={{
                           fontFamily: 'var(--font-mono)',
-                          background: 'var(--signal)',
-                          color: 'var(--ink)',
+                          background:
+                            item.badgeKey === 'alerts'
+                              ? 'var(--signal)'
+                              : 'var(--gold)',
+                          color: 'var(--paper)',
                           borderRadius: '2px',
                         }}
                       >
@@ -180,8 +312,35 @@ export function Sidebar({
         ))}
       </nav>
 
-      {/* Footer — signout */}
-      <div className="p-3" style={{ borderTop: '1px solid var(--rule)' }}>
+      {/* Footer — keyboard hint + signout */}
+      <div
+        className="px-3 py-3"
+        style={{ borderTop: '1px solid var(--rule)' }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            // Open command palette via custom event — listened to in
+            // <CommandPalette> mounted in the layout.
+            window.dispatchEvent(new CustomEvent('anvira:open-command-palette'));
+            setMobileOpen(false);
+          }}
+          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-[11px] mb-1"
+          style={{
+            color: 'var(--ink-faint)',
+            borderRadius: '3px',
+            background: 'var(--paper)',
+            border: '1px solid var(--rule)',
+          }}
+        >
+          <span className="flex items-center gap-2">
+            <span style={{ fontFamily: 'var(--font-mono)' }}>اضغط للبحث</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <kbd className="kbd">⌘</kbd>
+            <kbd className="kbd">K</kbd>
+          </span>
+        </button>
         <button
           onClick={signOut}
           className="w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors"
@@ -189,8 +348,12 @@ export function Sidebar({
             color: 'var(--ink-soft)',
             borderRadius: '3px',
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--paper-hover)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.background = 'var(--paper-hover)')
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.background = 'transparent')
+          }
         >
           <LogOut className="w-4 h-4" strokeWidth={1.5} />
           <span>تسجيل الخروج</span>
@@ -224,14 +387,13 @@ export function Sidebar({
         <div className="flex items-center gap-2">
           <span
             className="w-1.5 h-1.5 rounded-full"
-            style={{ background: 'var(--primary-glow)' }}
+            style={{ background: 'var(--gold-soft)' }}
           />
           <span className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>
             أنفيرا
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <ThemeToggle />
           {alertCount > 0 && (
             <span
               className="min-w-[18px] h-[18px] px-1 text-[10px] flex items-center justify-center tabular"
@@ -266,7 +428,9 @@ export function Sidebar({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="md:hidden fixed inset-0 z-50"
-              style={{ background: 'color-mix(in srgb, var(--paper-sink) 80%, transparent)' }}
+              style={{
+                background: 'color-mix(in srgb, var(--paper-sink) 80%, transparent)',
+              }}
               onClick={() => setMobileOpen(false)}
             />
             <motion.aside

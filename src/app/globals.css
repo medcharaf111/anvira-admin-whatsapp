@@ -7,7 +7,14 @@
 @tailwind utilities;
 
 @layer base {
-  /* ── LIGHT MODE (default) — warm editorial paper ──────────────── */
+  /* ── LIGHT MODE (default) — warm editorial paper ──────────────────
+     Reconciled with anvira-landing Phase-4.5 palette:
+       • Warm cream paper, warm near-black ink
+       • Brushed gold (signal) — active states, hot accents
+       • Deep slate-blue (primary) — authority, focus rings
+       • Editorial sage — success / "bot working"
+       • Terracotta — error / signal-red, sparingly
+  */
   :root {
     --ink: #151713;
     --ink-soft: #4a4d44;
@@ -21,10 +28,21 @@
     --rule-soft: #eae5d4;
     --rule-strong: #a8a293;
 
-    --primary: #1f6b3e;
-    --primary-glow: #167548;          /* deep forest — visible on cream */
-    --primary-soft: rgba(22, 117, 72, 0.09);
+    /* PRIMARY — slate-blue, matches landing --primary */
+    --primary: #3a4a6b;
+    --primary-glow: #5b6f95;          /* deeper cornflower — readable on cream */
+    --primary-soft: rgba(58, 74, 107, 0.08);
 
+    /* GOLD — brushed gold accent (landing parity) */
+    --gold: #8a6f48;                  /* deeper gold — readable on cream */
+    --gold-soft: #b89968;              /* mid gold — left-borders, dots */
+    --gold-faint: rgba(184, 153, 104, 0.14);
+
+    /* SAGE — editorial green, used for success / "bot active" */
+    --sage: #4a7c5a;
+    --sage-soft: rgba(74, 124, 90, 0.12);
+
+    /* SIGNAL — warm terracotta for errors */
     --signal: #c14a28;
     --signal-soft: rgba(193, 74, 40, 0.1);
     --warn: #a88640;
@@ -62,7 +80,7 @@
   .dark {
     --ink: #f4efe4;
     --ink-soft: #c9c2b1;
-    --ink-faint: #6b6558;
+    --ink-faint: #8c8678;
     --ink-ghost: #3a3830;
     --paper: #0b0c0a;
     --paper-lift: #14160f;
@@ -72,9 +90,19 @@
     --rule-soft: #1c1e18;
     --rule-strong: #3a3d33;
 
-    --primary: #2f7a4d;
-    --primary-glow: #9af0b0;
-    --primary-soft: rgba(154, 240, 176, 0.1);
+    /* Slate-blue lifts in dark (matches landing dark hero) */
+    --primary: #3a4a6b;
+    --primary-glow: #8ca5cf;
+    --primary-soft: rgba(140, 165, 207, 0.1);
+
+    /* Gold gets brighter for legibility on near-black */
+    --gold: #b89968;
+    --gold-soft: #d8b988;
+    --gold-faint: rgba(216, 185, 136, 0.14);
+
+    /* Sage brighter for dark mode */
+    --sage: #9bc7a7;
+    --sage-soft: rgba(155, 199, 167, 0.14);
 
     --signal: #e2603c;
     --signal-soft: rgba(226, 96, 60, 0.12);
@@ -133,7 +161,7 @@
   }
 
   ::selection {
-    background: var(--primary-glow);
+    background: var(--gold-soft);
     color: var(--paper);
   }
 
@@ -206,9 +234,11 @@
     border-radius: 2px;
     line-height: 1.4;
   }
-  .pill-success { background: var(--primary-soft); color: var(--primary-glow); }
+  .pill-success { background: var(--sage-soft); color: var(--sage); }
   .pill-signal  { background: var(--signal-soft); color: var(--signal); }
   .pill-warn    { background: var(--warn-soft); color: var(--warn); }
+  .pill-gold    { background: var(--gold-faint); color: var(--gold); }
+  .pill-primary { background: var(--primary-soft); color: var(--primary-glow); }
   .pill-idle    { background: var(--paper-lift); color: var(--ink-soft); border: 1px solid var(--rule); }
 
   .pill-dot {
@@ -231,15 +261,15 @@
     padding: 0 1.25rem;
     height: 2.375rem;
     border-radius: 3px;
-    transition: all 0.2s ease;
+    transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
     border: none;
     cursor: pointer;
   }
   .btn-primary:hover:not(:disabled) {
-    background: var(--primary-glow);
+    background: var(--gold);
     color: var(--paper);
     transform: translateY(-1px);
-    box-shadow: 0 6px 20px -4px color-mix(in srgb, var(--primary-glow) 40%, transparent);
+    box-shadow: 0 6px 20px -4px color-mix(in srgb, var(--gold) 40%, transparent);
   }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -261,6 +291,28 @@
   .btn-ghost:hover:not(:disabled) {
     border-color: var(--ink-faint);
     background: var(--paper-lift);
+  }
+
+  .btn-gold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: var(--gold-soft);
+    color: var(--paper);
+    font-size: 0.875rem;
+    padding: 0 1.25rem;
+    height: 2.375rem;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .btn-gold:hover:not(:disabled) {
+    background: var(--gold);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px -4px color-mix(in srgb, var(--gold-soft) 40%, transparent);
   }
 
   .btn-signal {
@@ -366,6 +418,57 @@
     background: var(--rule);
   }
 
+  /* ── Keyboard shortcut hint (kbd) ───────────────────────────── */
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.3125rem;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: var(--ink-soft);
+    background: var(--paper-sink);
+    border: 1px solid var(--rule);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Density toggle — compact mode trims list-row padding ─────
+     Applied to <html data-density="compact">. Targets the well-known
+     list-row grid pattern used in /conversations + /alerts + /leads. */
+  [data-density='compact'] .row-hover {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  [data-density='compact'] .row-hover .text-sm {
+    font-size: 0.8125rem;
+  }
+
+  /* ── Skeleton loader ───────────────────────────────────────── */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--paper-sink) 0%,
+      var(--paper-hover) 50%,
+      var(--paper-sink) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+    border-radius: 3px;
+  }
+  @keyframes skeleton-pulse {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; background: var(--paper-sink); }
+  }
+
   /* ── Editorial Switch (Radix) ───────────────────────────────── */
   .editorial-switch {
     position: relative;
@@ -449,4 +552,11 @@
     0% { transform: scale(1); opacity: 0.6; }
     100% { transform: scale(2.5); opacity: 0; }
   }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-dot::before { animation: none; opacity: 0; }
+  }
+
+  /* Hide scrollbar but keep functionality (used in command palette list) */
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
 }

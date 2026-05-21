@@ -1,8 +1,9 @@
 import { Sidebar } from '@/components/sidebar';
 import { PageTransition } from '@/components/page-transition';
-import { ThemeToggle } from '@/components/theme-toggle';
+import { TopBar } from '@/components/top-bar';
+import { CommandPalette } from '@/components/command-palette';
+import { KeyboardShortcuts } from '@/components/keyboard-shortcuts';
 import { RealtimeRefresh } from '@/components/realtime-refresh';
-import { TopBarClock } from '@/components/top-bar-clock';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { isOperatorEmail } from '@/lib/operator';
@@ -30,6 +31,19 @@ export default async function AppLayout({
     .eq('client_id', client.id)
     .eq('resolved', false);
 
+  // Hot-lead count (real-estate only) — drives sidebar badge for /leads.
+  // 'hot' and 'viewing_booked' are the high-priority stages an operator
+  // probably wants to touch first.
+  let hotLeadCount = 0;
+  if (client.client_type === 'real_estate') {
+    const { count } = await supabase
+      .from('conversations')
+      .select('*', { count: 'exact', head: true })
+      .eq('client_id', client.id)
+      .in('lead_stage', ['hot', 'viewing_booked']);
+    hotLeadCount = count ?? 0;
+  }
+
   const operatorView = isOperatorEmail(user.email);
 
   return (
@@ -47,34 +61,26 @@ export default async function AppLayout({
           },
         ]}
       />
-      <Sidebar alertCount={alertCount ?? 0} isOperator={operatorView} />
+
+      {/* Cross-cutting global widgets — mounted once, listen for hotkeys
+          and custom events from anywhere in the (app) tree. */}
+      <CommandPalette clientType={client.client_type} isOperator={operatorView} />
+      <KeyboardShortcuts clientType={client.client_type} />
+
+      <Sidebar
+        alertCount={alertCount ?? 0}
+        hotLeadCount={hotLeadCount}
+        isOperator={operatorView}
+        clientType={client.client_type}
+        kycEnabled={client.kyc_enabled}
+      />
       <main className="flex-1 overflow-auto pt-12 md:pt-0">
-        {/* Top bar — theme toggle (desktop only; on mobile it's in the sidebar top bar) */}
-        <div
-          className="hidden md:flex sticky top-0 z-40 items-center justify-end gap-3 px-12 h-14"
-          style={{
-            background: 'color-mix(in srgb, var(--paper) 88%, transparent)',
-            backdropFilter: 'blur(16px)',
-            borderBottom: '1px solid var(--rule)',
-          }}
-        >
-          <span
-            className="text-[11px] mr-auto flex items-center gap-3"
-            style={{
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--ink-faint)',
-              letterSpacing: '0.08em',
-            }}
-          >
-            <span>
-              {client.name}
-              {client.is_sandbox ? ' · SANDBOX' : ''}
-            </span>
-            <span style={{ color: 'var(--ink-ghost)' }}>·</span>
-            <TopBarClock timezone={client.business_timezone} />
-          </span>
-          <ThemeToggle />
-        </div>
+        <TopBar
+          clientName={client.name}
+          isSandbox={client.is_sandbox}
+          timezone={client.business_timezone}
+          transport={client.transport}
+        />
 
         <div className="mx-auto max-w-7xl px-5 sm:px-8 md:px-12 py-8 sm:py-10 md:py-14">
           <PageTransition>{children}</PageTransition>

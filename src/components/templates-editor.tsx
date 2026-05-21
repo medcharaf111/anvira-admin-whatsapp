@@ -2,14 +2,53 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2, Loader2, Save, X } from 'lucide-react';
+import { Plus, Trash2, Loader2, Save, X, Sparkles, Building2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { ReplyTemplate } from '@/app/(app)/templates/page';
+import type { ClientType } from '@/lib/client';
 
-export function TemplatesEditor({ initial }: { initial: ReplyTemplate[] }) {
+export function TemplatesEditor({
+  initial,
+  clientType = 'clinic',
+}: {
+  initial: ReplyTemplate[];
+  clientType?: ClientType;
+}) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState({ label: '', body: '', language: 'ar' });
   const [busy, setBusy] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
+
+  /**
+   * RE-only affordance: when the operator has no templates yet, offer to
+   * bulk-seed ~12 bilingual starters. Backend route is idempotent and
+   * refuses to seed when rows already exist, so even a double-click is
+   * safe — we still gate the UI to avoid the noisy 409.
+   */
+  async function seedRealEstate() {
+    setSeeding(true);
+    try {
+      const res = await fetch('/api/templates/seed-re', { method: 'POST' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(
+          j.error === 'already_seeded'
+            ? 'الردود موجودة بالفعل'
+            : `تعذّر التهيئة: ${j.error ?? 'unknown'}`
+        );
+        return;
+      }
+      toast.success(`تمّ إضافة ${j.inserted ?? 12} رد جاهز`);
+      router.refresh();
+    } catch {
+      toast.error('تعذّر التهيئة — حاول مرة أخرى');
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  const showSeedCta = clientType === 'real_estate' && initial.length === 0;
 
   async function create() {
     if (!draft.label.trim() || !draft.body.trim()) return;
@@ -46,6 +85,76 @@ export function TemplatesEditor({ initial }: { initial: ReplyTemplate[] }) {
 
   return (
     <div>
+      {/* RE starter pack — only when no templates exist. We want this to
+          be the most prominent affordance on the page on day-one. */}
+      {showSeedCta && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+          className="mb-8 p-6 md:p-7"
+          style={{
+            background: 'var(--paper-lift)',
+            border: '1px solid var(--rule)',
+            borderRadius: '3px',
+          }}
+        >
+          <div className="flex items-start gap-4 flex-wrap">
+            <div
+              className="w-10 h-10 flex items-center justify-center shrink-0"
+              style={{
+                background: 'var(--paper-sink)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                color: 'var(--primary-glow)',
+              }}
+            >
+              <Building2 className="w-4 h-4" strokeWidth={1.5} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-3 flex-wrap mb-1.5">
+                <h3
+                  className="text-base font-semibold"
+                  style={{ color: 'var(--ink)' }}
+                >
+                  باقة الردود العقارية — جاهزة للاستخدام
+                </h3>
+                <span
+                  className="text-[10px] tracking-widest uppercase"
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--ink-faint)',
+                  }}
+                >
+                  Real-estate starter · 12
+                </span>
+              </div>
+              <p
+                className="text-sm leading-relaxed mb-3 max-w-2xl"
+                style={{ color: 'var(--ink-soft)' }}
+              >
+                ٢ ترحيب (داخل/خارج الدوام)، إرسال البروشور، تذكير المعاينة،
+                خطة الأقساط، تحويل التمويل، No-show، Cold-lead nudge،
+                Hot-lead alert — كل ردّ ثنائي اللغة وقابل للتعديل.
+              </p>
+              <button
+                type="button"
+                onClick={seedRealEstate}
+                disabled={seeding}
+                className="btn-primary h-10 gap-2 text-sm"
+              >
+                {seeding ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" strokeWidth={1.5} />
+                )}
+                <span>أضف الباقة العقارية</span>
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Add new */}
       <div className="mb-8">
         <AnimatePresence mode="wait">

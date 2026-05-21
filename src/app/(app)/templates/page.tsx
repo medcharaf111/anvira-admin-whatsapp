@@ -33,7 +33,7 @@ export default async function TemplatesPage() {
         title="ردود سريعة قابلة للإعادة"
         subtitle="أنشئ نصوص جاهزة يقدر المشغّل يدخلها بضغطة في صندوق الرد."
       />
-      <TemplatesEditor initial={templates} />
+      <TemplatesEditor initial={templates} clientType={client.client_type} />
     </div>
   );
 }

@@ -14,18 +14,15 @@ export function TopBarClock({ timezone }: { timezone: string }) {
     // Refresh on the next minute boundary, then every 60s. Aligning to the
     // minute boundary means '4:32' flips to '4:33' the moment the client's
     // clock would, not 60s after page load.
+    let interval: ReturnType<typeof setInterval> | null = null;
     const msToNextMinute = 60_000 - (Date.now() % 60_000);
     const aligned = setTimeout(() => {
       setNow(new Date());
-      const interval = setInterval(() => setNow(new Date()), 60_000);
-      // Cleanup the interval when the next render unmounts the timeout
-      // (handled by the outer return below)
-      (aligned as any)._interval = interval;
+      interval = setInterval(() => setNow(new Date()), 60_000);
     }, msToNextMinute);
 
     return () => {
       clearTimeout(aligned);
-      const interval = (aligned as any)._interval;
       if (interval) clearInterval(interval);
     };
   }, []);

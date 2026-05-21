@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Mic } from 'lucide-react';
 
 interface Msg {
   id: string;
@@ -9,6 +10,21 @@ interface Msg {
   direction: 'inbound' | 'outbound';
   sender: 'customer' | 'bot' | 'human' | string;
   created_at: string;
+  language?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/**
+ * Voice-note provenance detection — the backend orchestrator stamps
+ * `metadata.voice = true` when the inbound message originated as a
+ * WhatsApp voice note that was transcribed. As a defensive fallback we
+ * also accept the older `metadata.reason === 'voice_transcribed'`
+ * variant produced by earlier code paths. Document this in the report.
+ */
+function isVoiceTranscribed(m: Msg): boolean {
+  if (!m.metadata) return false;
+  const md = m.metadata as Record<string, unknown>;
+  return md.voice === true || md.reason === 'voice_transcribed';
 }
 
 export function MessageThread({
@@ -114,6 +130,23 @@ export function MessageThread({
                 transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                 className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'} py-1`}
               >
+                {isInbound && isVoiceTranscribed(m) && (
+                  <span
+                    className="text-[9px] mb-1 px-1 flex items-center gap-1"
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--primary-glow)',
+                      letterSpacing: '0.14em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    <Mic className="w-2.5 h-2.5" strokeWidth={1.75} />
+                    <span>
+                      VOICE NOTE
+                      {m.language ? ` · TRANSCRIBED FROM ${m.language.toUpperCase()}` : ' · TRANSCRIBED'}
+                    </span>
+                  </span>
+                )}
                 {!isInbound && m.sender === 'human' && (
                   <span
                     className="text-[9px] mb-1 px-1"

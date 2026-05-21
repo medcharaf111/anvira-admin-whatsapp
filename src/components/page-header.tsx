@@ -1,6 +1,20 @@
 'use client';
 import { motion } from 'framer-motion';
 
+/**
+ * Strip Wave-1-era "01 / المحادثات" eyebrows down to just "المحادثات".
+ *
+ * The Phase-4.5 landing dropped numeric prefixes on all eyebrows
+ * (mono-uppercase, no numbers). The admin had ~12 PageHeader call-sites
+ * with the legacy prefix; rather than touch every page, we sanitize
+ * here. Anything before " / " is treated as a section index and dropped.
+ */
+function cleanEyebrow(eyebrow: string): string {
+  // matches "01 / TITLE" or "1 / TITLE" — strips the index.
+  const m = eyebrow.match(/^\s*\d+\s*\/\s*(.+)$/);
+  return m ? m[1].trim() : eyebrow.trim();
+}
+
 export function PageHeader({
   eyebrow,
   title,
@@ -12,6 +26,7 @@ export function PageHeader({
   subtitle?: string;
   action?: React.ReactNode;
 }) {
+  const cleanedEyebrow = eyebrow ? cleanEyebrow(eyebrow) : undefined;
   return (
     <motion.header
       initial={{ opacity: 0, y: 6 }}
@@ -21,10 +36,13 @@ export function PageHeader({
     >
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div className="flex-1 min-w-0">
-          {eyebrow && (
+          {cleanedEyebrow && (
             <div className="flex items-center gap-3 mb-3">
-              <span className="eyebrow">{eyebrow}</span>
-              <span className="h-px flex-1 max-w-[120px]" style={{ background: 'var(--rule)' }} />
+              <span className="eyebrow">{cleanedEyebrow}</span>
+              <span
+                className="h-px flex-1 max-w-[120px]"
+                style={{ background: 'var(--rule)' }}
+              />
             </div>
           )}
           <h1

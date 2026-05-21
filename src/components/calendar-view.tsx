@@ -3,7 +3,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronRight, ChevronLeft, Plus, X, Loader2, Trash2, Wand2,
+  Building2, MapPin, Monitor, CalendarClock,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import type { ClientType, CalendarMode } from '@/lib/client';
+import { formatViewingDate } from '@/lib/dates';
+
+type ViewingMode = 'showroom' | 'site' | 'virtual' | 'appointment';
 
 interface BookingEvent {
   id: string;
@@ -15,7 +21,62 @@ interface BookingEvent {
   ends_at: string;
   status: 'confirmed' | 'pending' | 'cancelled';
   google_event_id: string | null;
+  /** RE only — null on clinic/salon bookings. */
+  viewing_mode: ViewingMode | null;
+  booking_type: 'appointment' | 'viewing' | null;
 }
+
+/**
+ * Per-mode visual treatment for RE viewings.
+ *
+ * Each mode gets its own icon + a color stripe and a tinted background.
+ * Colors are token-driven so dark mode stays cohesive — we tint the
+ * existing semantic palette rather than introducing new hex codes.
+ *
+ *   showroom → warm primary tint  (in-office viewing — the safest mode)
+ *   site     → sage tint          (on-property — needs travel)
+ *   virtual  → gold tint          (Zoom / FaceTime — lowest friction)
+ *   appointment → legacy clinic/salon — unchanged primary tint
+ */
+const VIEWING_MODE_STYLES: Record<
+  ViewingMode,
+  {
+    stripe: string;
+    bg: string;
+    border: string;
+    icon: LucideIcon;
+    labelAr: string;
+  }
+> = {
+  showroom: {
+    stripe: 'var(--primary-glow)',
+    bg: 'color-mix(in srgb, var(--primary-glow) 14%, var(--paper-lift))',
+    border: 'color-mix(in srgb, var(--primary-glow) 35%, transparent)',
+    icon: Building2,
+    labelAr: 'معاينة في صالة العرض',
+  },
+  site: {
+    stripe: 'var(--primary)',
+    bg: 'color-mix(in srgb, var(--primary) 12%, var(--paper-lift))',
+    border: 'color-mix(in srgb, var(--primary) 32%, transparent)',
+    icon: MapPin,
+    labelAr: 'معاينة على الموقع',
+  },
+  virtual: {
+    stripe: 'var(--warn)',
+    bg: 'color-mix(in srgb, var(--warn) 14%, var(--paper-lift))',
+    border: 'color-mix(in srgb, var(--warn) 35%, transparent)',
+    icon: Monitor,
+    labelAr: 'معاينة افتراضية',
+  },
+  appointment: {
+    stripe: 'var(--primary-glow)',
+    bg: 'color-mix(in srgb, var(--primary) 88%, var(--paper-sink))',
+    border: 'color-mix(in srgb, var(--primary-glow) 50%, transparent)',
+    icon: CalendarClock,
+    labelAr: 'موعد',
+  },
+};
 
 interface ExternalEvent {
   id: string;
@@ -109,7 +170,16 @@ function isoLocal(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function CalendarView({ businessTimezone }: { businessTimezone: string }) {
+export function CalendarView({
+  businessTimezone,
+  clientType = 'clinic',
+  calendarMode = 'gregorian',
+}: {
+  businessTimezone: string;
+  clientType?: ClientType;
+  calendarMode?: CalendarMode;
+}) {
+  const isRE = clientType === 'real_estate';
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeekInTz(new Date(), businessTimezone));
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -181,6 +251,42 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
   return (
     <div>
       {/* Toolbar */}
+      {/* Legend — only for RE clients, so the operator can decode the
+          stripe colors at a glance. */}
+      {isRE && (
+        <div
+          className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-[11px]"
+          style={{ color: 'var(--ink-soft)' }}
+        >
+          <span
+            className="text-[10px] tracking-widest uppercase me-1"
+            style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+          >
+            نوع المعاينة
+          </span>
+          {(['showroom', 'site', 'virtual'] as const).map((m) => {
+            const s = VIEWING_MODE_STYLES[m];
+            const Icon = s.icon;
+            return (
+              <span key={m} className="inline-flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="inline-block"
+                  style={{
+                    width: 12,
+                    height: 3,
+                    background: s.stripe,
+                    borderRadius: 1,
+                  }}
+                />
+                <Icon className="w-3 h-3" strokeWidth={1.75} />
+                <span>{s.labelAr}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       <div
         className="flex items-center justify-between mb-6 pb-4"
         style={{ borderBottom: '1px solid var(--rule)' }}
@@ -212,9 +318,33 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
           className="display-ar text-lg"
           style={{ color: 'var(--ink)' }}
         >
-          {weekStart.toLocaleDateString('ar-AE', { day: 'numeric', month: 'long', timeZone: businessTimezone })}{' '}
-          —{' '}
-          {addDays(weekStart, 6).toLocaleDateString('ar-AE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: businessTimezone })}
+          {/* Week range — Hijri/dual modes route through formatViewingDate
+              so the brokerage's tenant-level preference is respected; in
+              Gregorian mode we keep the original Arabic locale string for
+              backwards compat with the rest of the page. */}
+          {calendarMode === 'gregorian' ? (
+            <>
+              {weekStart.toLocaleDateString('ar-AE', { day: 'numeric', month: 'long', timeZone: businessTimezone })}{' '}
+              —{' '}
+              {addDays(weekStart, 6).toLocaleDateString('ar-AE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: businessTimezone })}
+            </>
+          ) : (
+            <>
+              {formatViewingDate(weekStart, {
+                mode: calendarMode,
+                lang: 'ar',
+                timeZone: businessTimezone,
+                withWeekday: false,
+              })}{' '}
+              —{' '}
+              {formatViewingDate(addDays(weekStart, 6), {
+                mode: calendarMode,
+                lang: 'ar',
+                timeZone: businessTimezone,
+                withWeekday: false,
+              })}
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -275,6 +405,20 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
           <div />
           {days.map((d, i) => {
             const isToday = sameYMDInTz(d, new Date(), businessTimezone);
+            // Hijri day number — computed only when we need it so
+            // gregorian-mode operators don't pay for an extra format
+            // call seven times per render.
+            let hijriDay: string | null = null;
+            if (calendarMode === 'hijri' || calendarMode === 'dual') {
+              try {
+                hijriDay = new Intl.DateTimeFormat(
+                  'ar-SA-u-ca-islamic-umalqura',
+                  { day: 'numeric', timeZone: businessTimezone }
+                ).format(d);
+              } catch {
+                hijriDay = null;
+              }
+            }
             return (
               <div
                 key={i}
@@ -290,16 +434,40 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
                 >
                   {d.toLocaleDateString('ar-AE', { weekday: 'short', timeZone: businessTimezone })}
                 </div>
-                <div
-                  className="tabular text-lg mt-1"
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontWeight: 400,
-                    color: isToday ? 'var(--primary-glow)' : 'var(--ink)',
-                  }}
-                >
-                  {d.toLocaleDateString('en-US', { day: 'numeric', timeZone: businessTimezone })}
-                </div>
+                {calendarMode === 'hijri' ? (
+                  <div
+                    className="tabular text-lg mt-1"
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      fontWeight: 400,
+                      color: isToday ? 'var(--primary-glow)' : 'var(--ink)',
+                    }}
+                  >
+                    {hijriDay ??
+                      d.toLocaleDateString('en-US', { day: 'numeric', timeZone: businessTimezone })}
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      className="tabular text-lg mt-1"
+                      style={{
+                        fontFamily: 'var(--font-display)',
+                        fontWeight: 400,
+                        color: isToday ? 'var(--primary-glow)' : 'var(--ink)',
+                      }}
+                    >
+                      {d.toLocaleDateString('en-US', { day: 'numeric', timeZone: businessTimezone })}
+                    </div>
+                    {calendarMode === 'dual' && hijriDay && (
+                      <div
+                        className="text-[10px] tabular mt-0.5"
+                        style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+                      >
+                        {hijriDay}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             );
           })}
@@ -344,6 +512,8 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
               onEventClick={(ev) => setOpenEvent(ev)}
               showLeftBorder={di > 0}
               businessTimezone={businessTimezone}
+              isRE={isRE}
+              calendarMode={calendarMode}
             />
           ))}
         </div>
@@ -368,6 +538,7 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
               setCreateSlot(null);
               fetchEvents();
             }}
+            isRE={isRE}
           />
         )}
         {openEvent && (
@@ -379,6 +550,8 @@ export function CalendarView({ businessTimezone }: { businessTimezone: string })
               fetchEvents();
             }}
             businessTimezone={businessTimezone}
+            isRE={isRE}
+            calendarMode={calendarMode}
           />
         )}
       </AnimatePresence>
@@ -393,6 +566,8 @@ function DayColumn({
   onEventClick,
   showLeftBorder,
   businessTimezone,
+  isRE,
+  calendarMode: _calendarMode,
 }: {
   day: Date;
   events: CalEvent[];
@@ -400,6 +575,8 @@ function DayColumn({
   onEventClick: (ev: CalEvent) => void;
   showLeftBorder: boolean;
   businessTimezone: string;
+  isRE: boolean;
+  calendarMode?: CalendarMode;
 }) {
   return (
     <div
@@ -443,6 +620,18 @@ function DayColumn({
         if (ev.kind === 'booking' && ev.status === 'cancelled') return null;
         const isExternal = ev.kind === 'external';
 
+        // Resolve visual treatment. Non-booking events keep the legacy
+        // muted card. RE bookings tint per viewing_mode; clinic/salon
+        // bookings (no viewing_mode) fall back to the 'appointment' style
+        // which matches the old default.
+        const mode: ViewingMode =
+          ev.kind === 'booking' && isRE && ev.viewing_mode
+            ? ev.viewing_mode
+            : 'appointment';
+        const style = VIEWING_MODE_STYLES[mode];
+        const Icon = style.icon;
+        const showModeChrome = ev.kind === 'booking' && isRE;
+
         return (
           <button
             key={ev.id}
@@ -450,37 +639,69 @@ function DayColumn({
               e.stopPropagation();
               onEventClick(ev);
             }}
-            className="absolute inset-x-1 px-2 py-1 text-right overflow-hidden text-xs"
+            title={showModeChrome ? style.labelAr : undefined}
+            className="absolute inset-x-1 overflow-hidden text-xs group"
             style={{
               top,
               height,
               background: isExternal
                 ? 'color-mix(in srgb, var(--rule-strong) 60%, var(--paper))'
-                : 'color-mix(in srgb, var(--primary) 88%, var(--paper-sink))',
-              border: '1px solid color-mix(in srgb, var(--primary-glow) 50%, transparent)',
+                : style.bg,
+              border: `1px solid ${isExternal ? 'var(--rule)' : style.border}`,
               color: isExternal ? 'var(--ink-soft)' : 'var(--ink)',
               borderRadius: '3px',
+              paddingInlineStart: showModeChrome ? '0.625rem' : '0.5rem',
+              paddingInlineEnd: '0.5rem',
+              paddingBlock: '0.25rem',
+              textAlign: 'right',
+              position: 'absolute',
             }}
           >
-            <div className="font-semibold truncate">
-              {ev.kind === 'booking'
-                ? ev.customer_name || ev.customer_phone || 'موعد'
-                : ev.summary}
-            </div>
-            {ev.kind === 'booking' && ev.service && (
-              <div
-                className="text-[10px] truncate mt-0.5"
-                style={{ color: 'var(--ink-soft)' }}
-              >
-                {ev.service}
-              </div>
+            {/* Color stripe — only on RE booking events, anchored to the
+                start edge in RTL (inline-start). */}
+            {showModeChrome && (
+              <span
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  insetInlineStart: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 3,
+                  background: style.stripe,
+                }}
+              />
             )}
-            <div
-              className="text-[9px] tabular mt-0.5"
-              style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
-              dir="ltr"
-            >
-              {start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: businessTimezone })}
+
+            <div className="flex items-start gap-1.5">
+              {showModeChrome && (
+                <Icon
+                  className="w-3 h-3 mt-[2px] shrink-0"
+                  strokeWidth={1.75}
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold truncate">
+                  {ev.kind === 'booking'
+                    ? ev.customer_name || ev.customer_phone || (isRE ? 'معاينة' : 'موعد')
+                    : ev.summary}
+                </div>
+                {ev.kind === 'booking' && ev.service && (
+                  <div
+                    className="text-[10px] truncate mt-0.5"
+                    style={{ color: 'var(--ink-soft)' }}
+                  >
+                    {ev.service}
+                  </div>
+                )}
+                <div
+                  className="text-[9px] tabular mt-0.5"
+                  style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+                  dir="ltr"
+                >
+                  {start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: businessTimezone })}
+                </div>
+              </div>
             </div>
           </button>
         );
@@ -496,10 +717,12 @@ function CreateBookingModal({
   initialStart,
   onClose,
   onSaved,
+  isRE,
 }: {
   initialStart: Date;
   onClose: () => void;
   onSaved: () => void;
+  isRE: boolean;
 }) {
   const initialEnd = new Date(initialStart);
   initialEnd.setMinutes(initialEnd.getMinutes() + 30);
@@ -540,7 +763,7 @@ function CreateBookingModal({
   }
 
   return (
-    <ModalShell title="موعد جديد" onClose={onClose}>
+    <ModalShell title={isRE ? 'معاينة جديدة' : 'موعد جديد'} onClose={onClose}>
       <div className="space-y-5">
         <Field label="اسم العميل">
           <input
@@ -560,11 +783,15 @@ function CreateBookingModal({
             style={{ fontFamily: 'var(--font-mono)' }}
           />
         </Field>
-        <Field label="الخدمة">
+        <Field label={isRE ? 'العقار / المشروع' : 'الخدمة'}>
           <input
             value={service}
             onChange={(e) => setService(e.target.value)}
-            placeholder="مثلاً: تنظيف أسنان"
+            placeholder={
+              isRE
+                ? 'مثلاً: Emaar Beachfront 2BR'
+                : 'مثلاً: استشارة'
+            }
             className="input-boxed"
           />
         </Field>
@@ -629,11 +856,15 @@ function EventDetailModal({
   onClose,
   onDeleted,
   businessTimezone,
+  isRE,
+  calendarMode = 'gregorian',
 }: {
   event: CalEvent;
   onClose: () => void;
   onDeleted: () => void;
   businessTimezone: string;
+  isRE: boolean;
+  calendarMode?: CalendarMode;
 }) {
   const [deleting, setDeleting] = useState(false);
   const start = new Date(event.starts_at);
@@ -641,7 +872,7 @@ function EventDetailModal({
 
   async function deleteBooking() {
     if (event.kind !== 'booking') return;
-    if (!confirm('إلغاء هذا الموعد؟')) return;
+    if (!confirm(isRE ? 'إلغاء هذه المعاينة؟' : 'إلغاء هذا الموعد؟')) return;
     setDeleting(true);
     try {
       const res = await fetch(`/api/calendar/bookings/${event.id}`, {
@@ -667,7 +898,13 @@ function EventDetailModal({
 
   return (
     <ModalShell
-      title={event.kind === 'booking' ? 'تفاصيل الموعد' : 'حدث في التقويم'}
+      title={
+        event.kind === 'booking'
+          ? isRE
+            ? 'تفاصيل المعاينة'
+            : 'تفاصيل الموعد'
+          : 'حدث في التقويم'
+      }
       onClose={onClose}
     >
       <div className="space-y-4">
@@ -680,7 +917,21 @@ function EventDetailModal({
             {event.customer_phone && (
               <DetailRow label="الجوال" value={event.customer_phone} dir="ltr" mono />
             )}
-            {event.service && <DetailRow label="الخدمة" value={event.service} />}
+            {event.service && (
+              <DetailRow
+                label={isRE ? 'العقار / المشروع' : 'الخدمة'}
+                value={event.service}
+              />
+            )}
+            {isRE && event.viewing_mode && (
+              <DetailRow
+                label="نوع المعاينة"
+                value={
+                  VIEWING_MODE_STYLES[event.viewing_mode]?.labelAr ??
+                  event.viewing_mode
+                }
+              />
+            )}
             <DetailRow
               label="الحالة"
               value={
@@ -698,24 +949,22 @@ function EventDetailModal({
 
         <DetailRow
           label="من"
-          value={start.toLocaleString('ar-AE', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'long',
-            hour: '2-digit',
-            minute: '2-digit',
+          value={formatViewingDate(start, {
+            mode: calendarMode,
+            lang: 'ar',
             timeZone: businessTimezone,
+            withTime: true,
+            withWeekday: true,
           })}
         />
         <DetailRow
           label="إلى"
-          value={end.toLocaleString('ar-AE', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'long',
-            hour: '2-digit',
-            minute: '2-digit',
+          value={formatViewingDate(end, {
+            mode: calendarMode,
+            lang: 'ar',
             timeZone: businessTimezone,
+            withTime: true,
+            withWeekday: true,
           })}
         />
 
@@ -734,7 +983,7 @@ function EventDetailModal({
               ) : (
                 <Trash2 className="w-3.5 h-3.5" />
               )}
-              <span>إلغاء الموعد</span>
+              <span>{isRE ? 'إلغاء المعاينة' : 'إلغاء الموعد'}</span>
             </button>
           </div>
         )}

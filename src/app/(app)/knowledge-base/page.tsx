@@ -21,7 +21,7 @@ export default async function KBPage() {
         title="ما يعرفه المساعد"
         subtitle="اكتب لمساعدك كل ما يحتاج معرفته عن عملك — بلغة طبيعية، كأنك تشرح لموظف جديد."
       />
-      <KbForm initial={kb ?? {}} />
+      <KbForm initial={kb ?? {}} clientType={client.client_type} />
     </div>
   );
 }

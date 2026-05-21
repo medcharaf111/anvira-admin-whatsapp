@@ -1,0 +1,825 @@
+'use client';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
+import {
+  X,
+  RefreshCcw,
+  Download,
+  CheckCircle2,
+  FileText,
+  Send,
+  Loader2,
+  ShieldAlert,
+  ShieldCheck,
+  Shield,
+} from 'lucide-react';
+import type { KycStatus } from '@/components/real-estate/kyc-page';
+
+export interface KycCaseDetail {
+  id: string;
+  customer_name: string | null;
+  customer_phone: string;
+  nationality: string | null;
+  pep_self_declared: boolean | null;
+  source_of_funds: string | null;
+  expected_purchase_amount: number | null;
+  expected_purchase_currency: string | null;
+  status: KycStatus;
+  notes: string | null;
+  documents: KycDocument[];
+  screening_log: ScreeningLogEntry[];
+  required_doc_types: DocType[];
+}
+
+export interface KycDocument {
+  id: string;
+  doc_type: DocType;
+  filename: string | null;
+  preview_url: string | null;
+  download_url: string | null;
+  uploaded_at: string | null;
+}
+
+export interface ScreeningLogEntry {
+  id: string;
+  ran_at: string;
+  result: 'clean' | 'match' | 'review_needed' | 'error';
+  matched_lists: string[] | null;
+  notes: string | null;
+}
+
+export type DocType =
+  | 'passport'
+  | 'emirates_id'
+  | 'national_id'
+  | 'proof_of_address'
+  | 'source_of_funds'
+  | 'bank_statement'
+  | 'salary_certificate';
+
+const DOC_LABELS: Record<DocType, { ar: string; en: string }> = {
+  passport: { ar: 'الجواز', en: 'Passport' },
+  emirates_id: { ar: 'الهوية الإماراتية', en: 'Emirates ID' },
+  national_id: { ar: 'الهوية الوطنية', en: 'National ID' },
+  proof_of_address: { ar: 'إثبات العنوان', en: 'Address proof' },
+  source_of_funds: { ar: 'مصدر الأموال', en: 'Source of funds' },
+  bank_statement: { ar: 'كشف حساب', en: 'Bank statement' },
+  salary_certificate: { ar: 'شهادة راتب', en: 'Salary certificate' },
+};
+
+const STAGE_ORDER: KycStatus[] = [
+  'started',
+  'docs_pending',
+  'docs_collected',
+  'screening',
+  'ready_for_filing',
+  'filed',
+];
+
+const STAGE_META: Record<KycStatus, { label: string; pill: string }> = {
+  started: { label: 'بدأ', pill: 'pill-idle' },
+  docs_pending: { label: 'بانتظار وثائق', pill: 'pill-warn' },
+  docs_collected: { label: 'وثائق مكتملة', pill: 'pill-warn' },
+  screening: { label: 'فحص العقوبات', pill: 'pill-warn' },
+  ready_for_filing: { label: 'جاهز للإيداع', pill: 'pill-signal' },
+  filed: { label: 'مودَع', pill: 'pill-success' },
+  rejected: { label: 'مرفوض', pill: 'pill-idle' },
+  abandoned: { label: 'متروك', pill: 'pill-idle' },
+};
+
+const SCREENING_PILL: Record<ScreeningLogEntry['result'], string> = {
+  clean: 'pill-success',
+  match: 'pill-signal',
+  review_needed: 'pill-warn',
+  error: 'pill-idle',
+};
+
+function fmtAed(amount: number | null, currency: string | null): string {
+  if (amount === null) return '—';
+  const fmt = new Intl.NumberFormat('en-AE', { maximumFractionDigits: 0 });
+  return `${currency ?? 'AED'} ${fmt.format(amount)}`;
+}
+
+export function KycCaseDrawer({
+  open,
+  caseId,
+  detail,
+  loading,
+  onClose,
+  onUpdated,
+}: {
+  open: boolean;
+  caseId: string | null;
+  detail: KycCaseDetail | null;
+  loading: boolean;
+  onClose: () => void;
+  onUpdated: (d: KycCaseDetail) => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notes, setNotes] = useState('');
+  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (detail) setNotes(detail.notes ?? '');
+  }, [detail?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  // Debounced notes auto-save — operator types, we wait 800ms idle
+  // before sending the PATCH. Avoids hammering the backend on every
+  // keystroke without forcing them to click a save button.
+  function onNotesChange(v: string) {
+    setNotes(v);
+    if (!detail) return;
+    if (notesTimer.current) clearTimeout(notesTimer.current);
+    notesTimer.current = setTimeout(() => {
+      void patchCase({ notes: v }, /* silent */ true);
+    }, 800);
+  }
+
+  async function patchCase(
+    body: Partial<Pick<KycCaseDetail, 'status' | 'notes'>>,
+    silent = false
+  ) {
+    if (!detail) return;
+    try {
+      const res = await fetch(`/api/kyc/cases/${detail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      const j = (await res.json()) as Partial<KycCaseDetail>;
+      onUpdated({ ...detail, ...j, ...body } as KycCaseDetail);
+      if (!silent) toast.success('تم الحفظ');
+    } catch {
+      if (!silent) toast.error('تعذّر الحفظ');
+    }
+  }
+
+  async function rescreen() {
+    if (!detail) return;
+    setBusy('screen');
+    try {
+      const res = await fetch(`/api/kyc/cases/${detail.id}/screen`, { method: 'POST' });
+      if (!res.ok) throw new Error();
+      const j = (await res.json()) as { case?: KycCaseDetail };
+      toast.success('تم تشغيل الفحص');
+      if (j.case) onUpdated(j.case);
+    } catch {
+      toast.error('تعذّر الفحص');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadPdf() {
+    if (!detail) return;
+    setBusy('pdf');
+    try {
+      const res = await fetch(`/api/kyc/cases/${detail.id}/report-pdf`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kyc-${detail.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('تعذّر تحميل التقرير');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadGoamlXml() {
+    if (!detail) return;
+    setBusy('goaml');
+    try {
+      const res = await fetch(`/api/kyc/cases/${detail.id}/goaml-xml`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `goaml-${detail.id}.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('تعذّر تحميل ملف goAML XML');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function requestDoc(docType: DocType) {
+    if (!detail) return;
+    setBusy(`doc:${docType}`);
+    try {
+      const res = await fetch(`/api/kyc/cases/${detail.id}/request-doc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc_type: docType }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success('تم إرسال طلب الوثيقة');
+    } catch {
+      toast.error('تعذّر الإرسال');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!mounted || !caseId) return null;
+
+  const stageIdx = detail ? STAGE_ORDER.indexOf(detail.status) : -1;
+  const submittedDocs = new Set((detail?.documents ?? []).map((d) => d.doc_type));
+  const requiredDocs = detail?.required_doc_types ?? [
+    'passport',
+    'emirates_id',
+    'proof_of_address',
+    'source_of_funds',
+  ];
+
+  const node = (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[80]"
+            style={{ background: 'color-mix(in srgb, var(--ink) 45%, transparent)' }}
+            onClick={onClose}
+            aria-hidden="true"
+          />
+          <motion.aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="تفاصيل حالة KYC"
+            initial={{ x: '110%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '110%' }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed top-0 bottom-0 left-0 z-[81] w-full sm:w-[36rem] flex flex-col"
+            style={{
+              background: 'var(--paper)',
+              borderRight: '1px solid var(--rule)',
+              boxShadow: '0 24px 60px -20px rgba(0,0,0,0.35)',
+            }}
+          >
+            {/* Header */}
+            <div
+              className="px-6 pt-6 pb-4 shrink-0"
+              style={{ borderBottom: '1px solid var(--rule)' }}
+            >
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <span
+                  className="text-[10px] tracking-widest uppercase inline-flex items-center gap-1.5"
+                  style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+                >
+                  <Shield className="w-3 h-3" />
+                  KYC · {caseId.slice(0, 8)}
+                </span>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="btn-ghost h-8 w-8 p-0"
+                  aria-label="إغلاق"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {loading || !detail ? (
+                <div className="h-24 flex items-center justify-center">
+                  <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--ink-faint)' }} />
+                </div>
+              ) : (
+                <>
+                  <h2 className="display-ar text-2xl" style={{ color: 'var(--ink)' }}>
+                    {detail.customer_name || 'بدون اسم'}
+                  </h2>
+                  <div
+                    className="mt-1.5 text-[11px] tabular"
+                    style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+                    dir="ltr"
+                  >
+                    {detail.customer_phone}
+                  </div>
+                  <div className="mt-4 flex items-center gap-3 flex-wrap">
+                    <span className={`pill ${STAGE_META[detail.status].pill}`}>
+                      <span className="pill-dot" />
+                      <span>{STAGE_META[detail.status].label}</span>
+                    </span>
+                  </div>
+                  <StageTrack currentIdx={stageIdx} />
+                </>
+              )}
+            </div>
+
+            {detail && (
+              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
+                {/* Section 1: Customer profile */}
+                <section>
+                  <SectionHead label="CUSTOMER PROFILE" />
+                  <div
+                    className="divide-y"
+                    style={{
+                      borderColor: 'var(--rule)',
+                      background: 'var(--paper-lift)',
+                      border: '1px solid var(--rule)',
+                      borderRadius: '3px',
+                    }}
+                  >
+                    <Row label="Nationality" ar="الجنسية" value={detail.nationality ?? '—'} />
+                    <Row
+                      label="PEP self-declaration"
+                      ar="إفصاح PEP"
+                      value={
+                        detail.pep_self_declared === null
+                          ? '—'
+                          : detail.pep_self_declared
+                          ? 'نعم'
+                          : 'لا'
+                      }
+                      accent={detail.pep_self_declared ? 'signal' : undefined}
+                    />
+                    <Row
+                      label="Source of funds"
+                      ar="مصدر الأموال"
+                      value={detail.source_of_funds ?? '—'}
+                    />
+                    <Row
+                      label="Expected amount"
+                      ar="المبلغ المتوقّع"
+                      value={fmtAed(detail.expected_purchase_amount, detail.expected_purchase_currency)}
+                      mono
+                    />
+                  </div>
+                </section>
+
+                {/* Section 2: Documents */}
+                <section>
+                  <SectionHead label="DOCUMENTS COLLECTED" />
+                  <div className="grid grid-cols-2 gap-2">
+                    {requiredDocs.map((dt) => {
+                      const doc = detail.documents.find((d) => d.doc_type === dt);
+                      if (doc) {
+                        return <DocumentCard key={dt} doc={doc} />;
+                      }
+                      return (
+                        <MissingDocCard
+                          key={dt}
+                          docType={dt}
+                          busy={busy === `doc:${dt}`}
+                          onRequest={() => requestDoc(dt)}
+                        />
+                      );
+                    })}
+                    {/* Extra docs the customer uploaded that aren't in the
+                        required list — show them as additional cards. */}
+                    {detail.documents
+                      .filter((d) => !requiredDocs.includes(d.doc_type))
+                      .map((doc) => (
+                        <DocumentCard key={doc.id} doc={doc} />
+                      ))}
+                  </div>
+                  <p
+                    className="mt-2 text-[11px]"
+                    style={{ color: 'var(--ink-faint)' }}
+                  >
+                    {submittedDocs.size} / {requiredDocs.length} وثائق مطلوبة
+                  </p>
+                </section>
+
+                {/* Section 3: Screening log */}
+                <section>
+                  <SectionHead label="SANCTIONS SCREENING" />
+                  {detail.screening_log.length === 0 ? (
+                    <div
+                      className="px-4 py-5 text-xs text-center"
+                      style={{
+                        background: 'var(--paper-lift)',
+                        border: '1px dashed var(--rule)',
+                        borderRadius: '3px',
+                        color: 'var(--ink-faint)',
+                      }}
+                    >
+                      لم يتم تشغيل أي فحص بعد.
+                    </div>
+                  ) : (
+                    <ul
+                      className="divide-y"
+                      style={{
+                        borderColor: 'var(--rule)',
+                        background: 'var(--paper-lift)',
+                        border: '1px solid var(--rule)',
+                        borderRadius: '3px',
+                      }}
+                    >
+                      {detail.screening_log.map((entry) => (
+                        <ScreeningRow key={entry.id} entry={entry} />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+
+                {/* Section 4: Actions */}
+                <section>
+                  <SectionHead label="ACTIONS" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={rescreen}
+                      disabled={busy === 'screen'}
+                      className="btn-ghost h-10 text-xs gap-1.5 justify-start px-3"
+                    >
+                      {busy === 'screen' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="w-3.5 h-3.5" />
+                      )}
+                      <span>إعادة الفحص</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => patchCase({ status: 'ready_for_filing' })}
+                      disabled={detail.status === 'ready_for_filing' || detail.status === 'filed'}
+                      className="btn-ghost h-10 text-xs gap-1.5 justify-start px-3"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>جاهز للإيداع</span>
+                    </button>
+                  </div>
+
+                  {/* Filing artefacts — PDF (human-readable narrative)
+                      and goAML XML (machine-readable for FIU portal
+                      upload). Both gated to ready_for_filing / filed:
+                      earlier stages can't legitimately generate a
+                      filing artifact yet. */}
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {(() => {
+                      const filingReady =
+                        detail.status === 'ready_for_filing' || detail.status === 'filed';
+                      const tooltipMsg = filingReady
+                        ? undefined
+                        : 'Available only when status = ready_for_filing or filed';
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            onClick={downloadPdf}
+                            disabled={busy === 'pdf' || !filingReady}
+                            title={tooltipMsg}
+                            aria-disabled={!filingReady}
+                            className="btn-ghost h-10 text-xs gap-1.5 justify-start px-3"
+                          >
+                            {busy === 'pdf' ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Download className="w-3.5 h-3.5" />
+                            )}
+                            <span>Download PDF report</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={downloadGoamlXml}
+                            disabled={busy === 'goaml' || !filingReady}
+                            title={tooltipMsg}
+                            aria-disabled={!filingReady}
+                            className="btn-ghost h-10 text-xs gap-1.5 justify-start px-3"
+                          >
+                            {busy === 'goaml' ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <FileText className="w-3.5 h-3.5" />
+                            )}
+                            <span>Download goAML XML</span>
+                          </button>
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <p
+                    className="mt-2 text-[10px] leading-relaxed"
+                    style={{ color: 'var(--ink-faint)' }}
+                  >
+                    تقرير غير موقّع — التوقيع الرقمي يتم عبر بوابة goAML بعد التحميل.
+                  </p>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => patchCase({ status: 'filed' })}
+                      disabled={detail.status === 'filed'}
+                      className="btn-primary h-10 text-xs gap-1.5 justify-start px-3 col-span-2"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>وضع علامة "مودَع"</span>
+                    </button>
+                  </div>
+                </section>
+
+                {/* Section 5: Notes */}
+                <section>
+                  <SectionHead label="OPERATOR NOTES" />
+                  <textarea
+                    value={notes}
+                    onChange={(e) => onNotesChange(e.target.value)}
+                    rows={5}
+                    placeholder="ملاحظات داخلية حول الحالة — تُحفظ تلقائياً"
+                    className="input-boxed w-full text-sm leading-relaxed"
+                    style={{ fontFamily: 'var(--font-body)' }}
+                  />
+                  <p className="mt-1.5 text-[10px]" style={{ color: 'var(--ink-faint)' }}>
+                    يُحفظ تلقائياً عند التوقّف عن الكتابة.
+                  </p>
+                </section>
+              </div>
+            )}
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
+  return createPortal(node, document.body);
+}
+
+function StageTrack({ currentIdx }: { currentIdx: number }) {
+  return (
+    <div className="mt-5">
+      <div
+        className="flex items-center gap-1.5 mb-2 text-[9px] tracking-widest uppercase"
+        style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+      >
+        <span>STARTED</span>
+        <span className="flex-1 h-px" style={{ background: 'var(--rule)' }} />
+        <span>DOCS</span>
+        <span className="flex-1 h-px" style={{ background: 'var(--rule)' }} />
+        <span>SCREENED</span>
+        <span className="flex-1 h-px" style={{ background: 'var(--rule)' }} />
+        <span>READY</span>
+        <span className="flex-1 h-px" style={{ background: 'var(--rule)' }} />
+        <span>FILED</span>
+      </div>
+      <div
+        className="h-1.5 w-full overflow-hidden"
+        style={{ background: 'var(--paper-sink)', borderRadius: '1px' }}
+      >
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{
+            width:
+              currentIdx < 0
+                ? '0%'
+                : `${Math.min(100, ((currentIdx + 1) / STAGE_ORDER.length) * 100)}%`,
+          }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="h-full"
+          style={{
+            background:
+              'linear-gradient(90deg, var(--warn), var(--primary-glow))',
+            borderRadius: '1px',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SectionHead({ label }: { label: string }) {
+  return (
+    <div className="section-head !mb-3">
+      <span className="eyebrow">{label}</span>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  ar,
+  value,
+  mono,
+  accent,
+}: {
+  label: string;
+  ar: string;
+  value: string;
+  mono?: boolean;
+  accent?: 'signal';
+}) {
+  return (
+    <div className="p-3 flex items-start gap-3">
+      <div className="w-28 shrink-0">
+        <div
+          className="text-[10px] tracking-widest uppercase"
+          style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+        >
+          {label}
+        </div>
+        <div className="text-[11px] mt-0.5" style={{ color: 'var(--ink-faint)' }}>
+          {ar}
+        </div>
+      </div>
+      <div
+        className="flex-1 min-w-0 text-sm"
+        style={{
+          color: accent === 'signal' ? 'var(--signal)' : 'var(--ink)',
+          fontFamily: mono ? 'var(--font-mono)' : 'var(--font-body)',
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function DocumentCard({ doc }: { doc: KycDocument }) {
+  return (
+    <a
+      href={doc.download_url ?? doc.preview_url ?? '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block p-3 transition-colors"
+      style={{
+        background: 'var(--paper-lift)',
+        border: '1px solid var(--rule)',
+        borderRadius: '3px',
+      }}
+    >
+      <div
+        className="aspect-[4/3] mb-2 flex items-center justify-center overflow-hidden"
+        style={{
+          background: 'var(--paper-sink)',
+          borderRadius: '2px',
+        }}
+      >
+        {doc.preview_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={doc.preview_url}
+            alt={doc.filename ?? doc.doc_type}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <FileText className="w-6 h-6" style={{ color: 'var(--ink-faint)' }} strokeWidth={1.25} />
+        )}
+      </div>
+      <div className="text-xs font-medium truncate" style={{ color: 'var(--ink)' }}>
+        {DOC_LABELS[doc.doc_type]?.ar ?? doc.doc_type}
+      </div>
+      <div
+        className="text-[10px] truncate mt-0.5"
+        style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+        dir="ltr"
+      >
+        {doc.filename ?? doc.doc_type}
+      </div>
+    </a>
+  );
+}
+
+function MissingDocCard({
+  docType,
+  busy,
+  onRequest,
+}: {
+  docType: DocType;
+  busy: boolean;
+  onRequest: () => void;
+}) {
+  return (
+    <div
+      className="p-3"
+      style={{
+        background: 'var(--paper-lift)',
+        border: '1px dashed var(--rule)',
+        borderRadius: '3px',
+      }}
+    >
+      <div
+        className="aspect-[4/3] mb-2 flex items-center justify-center"
+        style={{ background: 'var(--paper-sink)', borderRadius: '2px' }}
+      >
+        <FileText
+          className="w-6 h-6"
+          style={{ color: 'var(--ink-ghost)' }}
+          strokeWidth={1}
+        />
+      </div>
+      <div className="text-xs font-medium truncate" style={{ color: 'var(--ink-soft)' }}>
+        {DOC_LABELS[docType]?.ar ?? docType}
+      </div>
+      <button
+        type="button"
+        onClick={onRequest}
+        disabled={busy}
+        className="mt-2 w-full inline-flex items-center justify-center gap-1.5 h-7 text-[10px] tracking-widest uppercase"
+        style={{
+          fontFamily: 'var(--font-mono)',
+          background: 'transparent',
+          color: 'var(--primary-glow)',
+          border: '1px solid color-mix(in srgb, var(--primary-glow) 40%, transparent)',
+          borderRadius: '2px',
+        }}
+      >
+        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+        <span>طلب عبر WhatsApp</span>
+      </button>
+    </div>
+  );
+}
+
+function ScreeningRow({ entry }: { entry: ScreeningLogEntry }) {
+  const Icon =
+    entry.result === 'clean'
+      ? ShieldCheck
+      : entry.result === 'match'
+      ? ShieldAlert
+      : Shield;
+  return (
+    <li className="p-3 flex items-start gap-3">
+      <Icon
+        className="w-4 h-4 mt-0.5 shrink-0"
+        style={{
+          color:
+            entry.result === 'clean'
+              ? 'var(--primary-glow)'
+              : entry.result === 'match'
+              ? 'var(--signal)'
+              : 'var(--warn)',
+        }}
+        strokeWidth={1.5}
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`pill ${SCREENING_PILL[entry.result]}`}>
+            <span className="pill-dot" />
+            <span>
+              {entry.result === 'clean'
+                ? 'نظيف'
+                : entry.result === 'match'
+                ? 'تطابق'
+                : entry.result === 'review_needed'
+                ? 'يحتاج مراجعة'
+                : 'خطأ'}
+            </span>
+          </span>
+          <span
+            className="text-[10px] tabular"
+            style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+            dir="ltr"
+          >
+            {new Date(entry.ran_at).toLocaleString('en-GB')}
+          </span>
+        </div>
+        {entry.matched_lists && entry.matched_lists.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {entry.matched_lists.map((l) => (
+              <span
+                key={l}
+                className="text-[10px] px-1.5 py-0.5"
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  background: 'var(--paper-sink)',
+                  border: '1px solid var(--rule)',
+                  borderRadius: '2px',
+                  color: 'var(--ink-soft)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {l}
+              </span>
+            ))}
+          </div>
+        )}
+        {entry.notes && (
+          <p className="mt-1 text-[11px]" style={{ color: 'var(--ink-soft)' }}>
+            {entry.notes}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}

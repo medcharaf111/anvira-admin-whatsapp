@@ -81,7 +81,16 @@ function BusinessHoursEditor({
   );
 }
 
-export function SettingsForm({ initial, clientId }: { initial: any; clientId: string }) {
+export function SettingsForm({
+  initial,
+  clientId,
+  clientType = 'clinic',
+}: {
+  initial: any;
+  clientId: string;
+  clientType?: 'clinic' | 'salon' | 'real_estate';
+}) {
+  const isRE = clientType === 'real_estate';
   const [s, setS] = useState(initial);
 
   async function save(): Promise<boolean> {
@@ -150,9 +159,13 @@ export function SettingsForm({ initial, clientId }: { initial: any; clientId: st
       </motion.section>
 
       <motion.section variants={staggerItem} className="space-y-3">
-        <h2 className="text-xl font-medium">مدة الموعد الافتراضية</h2>
+        <h2 className="text-xl font-medium">
+          {isRE ? 'مدة المعاينة الافتراضية' : 'مدة الموعد الافتراضية'}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          المدة بالدقائق التي يحجزها البوت لكل موعد جديد. اختر القيمة المناسبة لطبيعة عملك.
+          {isRE
+            ? 'المدة بالدقائق التي يحجزها البوت لكل معاينة جديدة. اختر القيمة المناسبة حسب نوع المعاينة الغالب.'
+            : 'المدة بالدقائق التي يحجزها البوت لكل موعد جديد. اختر القيمة المناسبة لطبيعة عملك.'}
         </p>
         <div className="flex items-center gap-3 flex-wrap">
           {[15, 30, 45, 60, 90, 120].map((min) => {
@@ -190,7 +203,9 @@ export function SettingsForm({ initial, clientId }: { initial: any; clientId: st
           />
         </div>
         <p className="text-[11px] text-muted-foreground" style={{ color: 'var(--ink-faint)' }}>
-          مثال: عيادة أسنان عادية ٣٠–٤٥ دقيقة، صالون شعر ساعة، تقويم أسنان ساعتان.
+          {isRE
+            ? 'مثال: معاينة في صالة العرض ٤٥ دقيقة، معاينة موقع ٩٠ دقيقة، اجتماع Off-plan ساعتان.'
+            : 'مثال: عيادة عادية ٣٠–٤٥ دقيقة، صالون شعر ساعة، جلسة تقويم ساعتان.'}
         </p>
       </motion.section>
 
