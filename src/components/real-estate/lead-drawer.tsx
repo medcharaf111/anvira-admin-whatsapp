@@ -76,6 +76,32 @@ function redactPhone(p: string): string {
   return `${prefix}${'·'.repeat(Math.max(2, trimmed.length - 6))}${suffix}`;
 }
 
+/**
+ * Coerce whatever Supabase / API hands us into a `string[]`. Real Postgres
+ * `text[]` columns arrive as JS arrays. Older rows or pre-migration data
+ * occasionally arrive as JSON-encoded strings (`'["foo","bar"]'`) or a
+ * single comma-separated string. Anything else maps to [].
+ */
+function normaliseStringList(v: unknown): string[] {
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string');
+  if (typeof v === 'string') {
+    const trimmed = v.trim();
+    if (trimmed.length === 0) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((x): x is string => typeof x === 'string');
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+    return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 function formatBudget(
   min: number | null,
   max: number | null,
@@ -992,8 +1018,13 @@ function ChipRow({
 }: {
   label: string;
   labelAr: string;
-  values: string[];
+  values: string[] | string | null | undefined;
 }) {
+  // Defensive: Postgres array columns occasionally arrive as JSON-encoded
+  // strings ("[\"foo\",\"bar\"]") or as a single string when the row was
+  // inserted by an older code path. Coerce anything non-array to [] so we
+  // never throw `l.map is not a function`.
+  const safeValues = normaliseStringList(values);
   return (
     <div className="p-3 flex items-start gap-3">
       <div className="w-24 shrink-0">
@@ -1014,7 +1045,7 @@ function ChipRow({
         </div>
       </div>
       <div className="flex-1 min-w-0">
-        {values.length === 0 ? (
+        {safeValues.length === 0 ? (
           <span
             className="text-sm"
             style={{ color: 'var(--ink-faint)' }}
@@ -1023,7 +1054,7 @@ function ChipRow({
           </span>
         ) : (
           <div className="flex flex-wrap gap-1">
-            {values.map((v) => (
+            {safeValues.map((v) => (
               <span
                 key={v}
                 className="text-[10px] px-2 py-0.5"
