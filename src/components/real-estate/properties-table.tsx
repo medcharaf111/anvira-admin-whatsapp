@@ -84,6 +84,48 @@ const TYPE_LABEL: Record<string, string> = {
   retail: 'محل تجاري',
 };
 
+/**
+ * Coerce whatever Supabase hands us into string[]. Real Postgres text[]
+ * arrives as JS array, but `properties.highlights` is a plain TEXT column
+ * — historic rows may be a single string, a Postgres array literal
+ * (`'{a,b,c}'`), or a JSON-encoded array. We accept all three and any
+ * other shape maps to []. Keeps .join / .filter / .map from blowing up.
+ */
+function toStringArray(v: unknown): string[] {
+  if (v == null) return [];
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string');
+  if (typeof v === 'string') {
+    const trimmed = v.trim();
+    if (!trimmed) return [];
+    // JSON array literal — `["a","b"]`
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((x): x is string => typeof x === 'string');
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+    // Postgres array literal — `{a,b,c}` — strip braces and split on comma.
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      return trimmed
+        .slice(1, -1)
+        .split(',')
+        .map((s) => s.trim().replace(/^"(.*)"$/, '$1'))
+        .filter(Boolean);
+    }
+    // Plain string with newlines (how the textarea persists highlights).
+    if (trimmed.includes('\n')) {
+      return trimmed.split('\n').map((s) => s.trim()).filter(Boolean);
+    }
+    // Single line — treat as one-element array.
+    return [trimmed];
+  }
+  return [];
+}
+
 export function PropertiesTable({
   properties,
   projects,
@@ -323,8 +365,14 @@ function PropertyModal({
   const [isOffplan, setIsOffplan] = useState(property?.is_offplan ?? false);
   const [projectId, setProjectId] = useState(property?.project_id ?? '');
   const [planId, setPlanId] = useState(property?.payment_plan_id ?? '');
-  const [highlights, setHighlights] = useState<string[]>(property?.highlights ?? []);
-  const [media, setMedia] = useState<string[]>(property?.media_urls ?? []);
+  // `properties.highlights` is a TEXT column in Postgres (not text[]). Older
+  // rows may arrive as a plain string ("3BR · sea view · 2026 handover"), a
+  // Postgres array literal ("{a,b,c}") or a JSON-encoded array. Coerce to
+  // string[] so .join() / .filter() don't crash mid-render.
+  const [highlights, setHighlights] = useState<string[]>(
+    toStringArray(property?.highlights)
+  );
+  const [media, setMedia] = useState<string[]>(toStringArray(property?.media_urls));
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
