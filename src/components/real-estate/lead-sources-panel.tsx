@@ -20,6 +20,7 @@ interface LeadSourcesData {
   inbound_email_enabled: boolean;
   llm_detected_count_30d: number;
   inbound_email_domain: string;
+  full_address: string | null;
 }
 
 /**
@@ -79,9 +80,7 @@ export function LeadSourcesPanel() {
 
   if (!data) return null;
 
-  const fullAddress = data.inbound_email_token
-    ? `leads-${data.inbound_email_token}@${data.inbound_email_domain}`
-    : null;
+  const fullAddress = data.full_address;
 
   return (
     <section className="mt-12">
@@ -131,6 +130,7 @@ export function LeadSourcesPanel() {
         <EmailRow
           enabled={data.inbound_email_enabled}
           fullAddress={fullAddress}
+          domain={data.inbound_email_domain}
           onChange={refresh}
         />
         <RowDivider />
@@ -244,15 +244,56 @@ function WhatsAppRow({ waNumber }: { waNumber: string | null }) {
 function EmailRow({
   enabled,
   fullAddress,
+  domain,
   onChange,
 }: {
   enabled: boolean;
   fullAddress: string | null;
+  domain: string;
   onChange: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [slugDraft, setSlugDraft] = useState('');
+  const [renaming, setRenaming] = useState(false);
+
+  const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/;
+  const slugValid = SLUG_RE.test(slugDraft);
+
+  async function rename() {
+    if (!slugValid) return;
+    setRenaming(true);
+    try {
+      const res = await fetch('/api/lead-sources/email/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: slugDraft }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        if (json.error === 'taken') {
+          toast.error('هذا الاسم محجوز من تاجر آخر');
+        } else if (json.error === 'reserved') {
+          toast.error('هذا الاسم محجوز للنظام — اختَر اسماً آخر');
+        } else if (json.error === 'invalid_format') {
+          toast.error('صيغة غير صالحة — 3–32 حرفاً، أحرف صغيرة وأرقام و – فقط');
+        } else {
+          toast.error('تعذّر تغيير الاسم');
+        }
+        return;
+      }
+      toast.success('تم تغيير العنوان');
+      setRenameOpen(false);
+      setSlugDraft('');
+      await onChange();
+    } catch {
+      toast.error('فشل الاتصال');
+    } finally {
+      setRenaming(false);
+    }
+  }
 
   async function enable() {
     setBusy(true);
@@ -349,23 +390,148 @@ function EmailRow({
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setHowOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-[11px] transition-colors"
-            style={{
-              fontFamily: 'var(--font-mono)',
-              color: howOpen ? 'var(--ink)' : 'var(--ink-soft)',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-            }}
-          >
-            <ChevronDown
-              className="w-3 h-3 transition-transform"
-              style={{ transform: howOpen ? 'rotate(180deg)' : 'none' }}
-            />
-            <span>{howOpen ? 'إخفاء التعليمات' : 'كيف تربط؟'}</span>
-          </button>
+          <div className="flex items-center gap-4 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setHowOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-[11px] transition-colors"
+              style={{
+                fontFamily: 'var(--font-mono)',
+                color: howOpen ? 'var(--ink)' : 'var(--ink-soft)',
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}
+            >
+              <ChevronDown
+                className="w-3 h-3 transition-transform"
+                style={{ transform: howOpen ? 'rotate(180deg)' : 'none' }}
+              />
+              <span>{howOpen ? 'إخفاء التعليمات' : 'كيف تربط؟'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRenameOpen((v) => !v);
+                setSlugDraft('');
+              }}
+              className="flex items-center gap-1.5 text-[11px] transition-colors"
+              style={{
+                fontFamily: 'var(--font-mono)',
+                color: renameOpen ? 'var(--ink)' : 'var(--ink-soft)',
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}
+            >
+              <ChevronDown
+                className="w-3 h-3 transition-transform"
+                style={{ transform: renameOpen ? 'rotate(180deg)' : 'none' }}
+              />
+              <span>{renameOpen ? 'إلغاء' : 'تغيير الاسم'}</span>
+            </button>
+          </div>
+
+          <AnimatePresence initial={false}>
+            {renameOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                className="overflow-hidden"
+              >
+                <div
+                  className="p-4 space-y-3"
+                  style={{
+                    background: 'var(--paper-sink)',
+                    border: '1px solid var(--rule)',
+                    borderRadius: 3,
+                  }}
+                >
+                  <div className="space-y-1">
+                    <label
+                      className="block text-[10px] tracking-widest uppercase"
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--ink-faint)',
+                      }}
+                    >
+                      اسم مخصّص للبريد · CUSTOM LOCAL-PART
+                    </label>
+                    <div className="flex items-stretch" style={{ background: 'var(--rule)', borderRadius: 3 }}>
+                      <input
+                        type="text"
+                        value={slugDraft}
+                        onChange={(e) =>
+                          setSlugDraft(
+                            e.target.value
+                              .toLowerCase()
+                              .replace(/[^a-z0-9-]/g, '')
+                              .slice(0, 32)
+                          )
+                        }
+                        placeholder="marina-leads"
+                        className="flex-1 min-w-0 px-3 h-9 text-[13px] tabular outline-none"
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          background: 'var(--paper-lift)',
+                          color: 'var(--ink)',
+                          letterSpacing: '0.04em',
+                          border: 'none',
+                        }}
+                        dir="ltr"
+                        autoFocus
+                        disabled={renaming}
+                      />
+                      <span
+                        className="h-9 px-3 flex items-center text-[12px]"
+                        style={{
+                          background: 'var(--paper-sink)',
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--ink-faint)',
+                        }}
+                        dir="ltr"
+                      >
+                        @{domain}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      <span
+                        className="text-[10px]"
+                        style={{ color: 'var(--ink-faint)' }}
+                      >
+                        3–32 حرفاً، أحرف صغيرة وأرقام و – فقط. مثال: <code dir="ltr" style={{ fontFamily: 'var(--font-mono)' }}>marina-leads</code>
+                      </span>
+                      {slugDraft && !slugValid && (
+                        <span
+                          className="text-[10px]"
+                          style={{ color: 'var(--warn)' }}
+                        >
+                          صيغة غير صالحة
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={rename}
+                      disabled={!slugValid || renaming}
+                      className="btn-primary h-9 px-4 text-[12px] disabled:opacity-50"
+                    >
+                      {renaming ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <span>حفظ الاسم الجديد</span>
+                      )}
+                    </button>
+                    <span className="text-[10px]" style={{ color: 'var(--ink-faint)' }}>
+                      تأكد من تحديث الفلاتر في Bayut/PF/Gmail بعد التغيير.
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <AnimatePresence initial={false}>
             {howOpen && (

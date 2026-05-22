@@ -10,6 +10,25 @@ export interface LeadSourcesResponse {
   inbound_email_enabled: boolean;
   llm_detected_count_30d: number;
   inbound_email_domain: string;
+  /**
+   * Computed `<local-part>@<domain>` based on the stored token's shape:
+   *   - 24-char hex (legacy random token) → `leads-<hex>@<domain>`
+   *   - anything else (vanity slug)        → `<slug>@<domain>`
+   * Null when no token is provisioned.
+   */
+  full_address: string | null;
+}
+
+/**
+ * Build the full email address. Legacy random tokens (24 hex chars) get
+ * the `leads-` prefix prepended for display so existing portal-forwarding
+ * configs keep matching. Vanity slugs (anything else, e.g. `marina-leads`)
+ * are used verbatim as the local-part.
+ */
+function computeFullAddress(token: string | null, domain: string): string | null {
+  if (!token) return null;
+  const isLegacyHex = /^[a-f0-9]{24}$/.test(token);
+  return `${isLegacyHex ? 'leads-' : ''}${token}@${domain}`;
 }
 
 /**
@@ -71,12 +90,14 @@ export async function GET() {
     .not('lead_source', 'is', null)
     .gte('created_at', since);
 
+  const domain =
+    process.env.NEXT_PUBLIC_INBOUND_EMAIL_DOMAIN ?? 'inbound.anvira.com';
   return NextResponse.json({
     wa_number: client.wa_number,
     inbound_email_token: inboundToken,
     inbound_email_enabled: inboundEnabled,
     llm_detected_count_30d: count ?? 0,
-    inbound_email_domain:
-      process.env.NEXT_PUBLIC_INBOUND_EMAIL_DOMAIN ?? 'inbound.anvira.com',
+    inbound_email_domain: domain,
+    full_address: computeFullAddress(inboundToken, domain),
   } satisfies LeadSourcesResponse);
 }
