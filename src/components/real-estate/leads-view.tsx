@@ -410,11 +410,11 @@ function ListView({
       >
         <span></span>
         <span>العميل</span>
-        <span>الميزانية</span>
-        <span>غرف</span>
-        <span>الموعد</span>
-        <span>المرحلة</span>
-        <span>Score</span>
+        <span className="text-right min-w-[8rem]">الميزانية</span>
+        <span className="text-center min-w-[3rem]">غرف</span>
+        <span className="text-center min-w-[5rem]">الموعد</span>
+        <span className="text-center min-w-[7rem]">المرحلة</span>
+        <span className="text-center min-w-[3rem]">Score</span>
         <span></span>
       </div>
       {leads.map((l) => (
