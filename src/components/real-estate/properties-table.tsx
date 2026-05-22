@@ -12,6 +12,7 @@ import {
   Image as ImageIcon,
   Upload,
   Building2,
+  FileText,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -378,15 +379,30 @@ function PropertyModal({
     onClose();
   }
 
-  async function uploadImage(file: File) {
+  async function uploadFile(file: File) {
+    // Brokers will be sending these via WhatsApp, where there's a 100MB/file
+    // cap. We refuse anything larger client-side to save the round-trip.
+    const MAX_BYTES = 90 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      toast.error(`الملف أكبر من 90MB — قسّمه أو اضغطه قبل الرفع.`);
+      return;
+    }
     setUploading(true);
     try {
       const supabase = createClient();
-      const ext = file.name.split('.').pop() ?? 'jpg';
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const ext = file.name.split('.').pop()?.toLowerCase() ?? 'bin';
+      // Tag the path by mime type folder so we can later prune the bucket
+      // by category if it grows. Random suffix prevents collisions on
+      // duplicate filenames across properties.
+      const folder = file.type === 'application/pdf' ? 'pdf' : 'image';
+      const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { data: uploadData, error } = await supabase.storage
         .from('property-media')
-        .upload(path, file, { cacheControl: '3600', upsert: false });
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type || undefined,
+        });
       if (error) {
         // Bucket may not exist yet — surface a useful message to the operator.
         toast.error(`فشل الرفع: ${error.message}`);
@@ -621,28 +637,61 @@ function PropertyModal({
             />
           </Field>
 
-          <Field label="الصور والوسائط">
+          <Field label="الصور والكتيّبات (Brochures & media)">
             <div className="space-y-2">
               {media.length > 0 && (
                 <div className="grid grid-cols-4 gap-2">
-                  {media.map((url, i) => (
-                    <div key={i} className="relative group">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={url}
-                        alt=""
-                        className="w-full h-20 object-cover"
-                        style={{ borderRadius: '3px', border: '1px solid var(--rule)' }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setMedia(media.filter((_, j) => j !== i))}
-                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 text-white text-[10px] flex items-center justify-center rounded opacity-0 group-hover:opacity-100"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
+                  {media.map((url, i) => {
+                    const isPdf = /\.pdf($|\?)/i.test(url) || /\/pdf\//i.test(url);
+                    const filename = (() => {
+                      try {
+                        const u = new URL(url);
+                        return decodeURIComponent(u.pathname.split('/').pop() ?? 'file');
+                      } catch {
+                        return 'file';
+                      }
+                    })();
+                    return (
+                      <div key={i} className="relative group">
+                        {isPdf ? (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex flex-col items-center justify-center w-full h-20 px-2 text-[10px] gap-1 text-center"
+                            style={{
+                              borderRadius: '3px',
+                              border: '1px solid var(--rule)',
+                              background: 'var(--paper-sink)',
+                              color: 'var(--ink-soft)',
+                              fontFamily: 'var(--font-mono)',
+                            }}
+                            title={filename}
+                          >
+                            <FileText className="w-4 h-4" />
+                            <span className="truncate w-full" style={{ direction: 'ltr' }}>
+                              {filename.length > 18 ? `${filename.slice(0, 15)}…pdf` : filename}
+                            </span>
+                          </a>
+                        ) : (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={url}
+                            alt=""
+                            className="w-full h-20 object-cover"
+                            style={{ borderRadius: '3px', border: '1px solid var(--rule)' }}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setMedia(media.filter((_, j) => j !== i))}
+                          className="absolute top-1 right-1 w-5 h-5 bg-black/60 text-white text-[10px] flex items-center justify-center rounded opacity-0 group-hover:opacity-100"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               <label className="btn-ghost h-9 px-3 text-xs cursor-pointer w-fit gap-2">
@@ -651,21 +700,21 @@ function PropertyModal({
                 ) : (
                   <Upload className="w-3.5 h-3.5" />
                 )}
-                <span>{uploading ? 'جارٍ الرفع...' : 'رفع صورة'}</span>
+                <span>{uploading ? 'جارٍ الرفع...' : 'رفع صورة أو كتيّب (PDF)'}</span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf"
                   className="hidden"
                   disabled={uploading}
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) uploadImage(file);
+                    if (file) uploadFile(file);
                     e.target.value = '';
                   }}
                 />
               </label>
-              <p className="text-[10px]" style={{ color: 'var(--ink-faint)' }}>
-                الصور تُخزَّن في bucket "property-media". تأكد أن البكت مُنشأ في Supabase Storage.
+              <p className="text-[10px] leading-relaxed" style={{ color: 'var(--ink-faint)' }}>
+                الصور وملفات PDF تُخزَّن في bucket <span style={{ fontFamily: 'var(--font-mono)' }}>property-media</span> على Supabase Storage. لازم البكت يكون مُنشأ ومسموح فيه القراءة العامة (Public bucket) عشان البوت يقدر يرسل الـ brochure للمشتري عبر واتساب.
               </p>
             </div>
           </Field>
