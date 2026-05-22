@@ -81,12 +81,89 @@ const TITLES: Record<string, { ar: string; en: string }> = {
   U: { ar: 'إلغاء اتفاقية وكالة', en: 'Form U — Cancellation' },
 };
 
+/**
+ * Arabic translations for every RERA form field key the backend exposes. The
+ * backend's schemas ship only English `label` strings; this map lets the
+ * admin drawer render bilingual labels without each form needing a backend
+ * change. Add to this when new fields are introduced server-side.
+ */
+const ARABIC_LABELS: Record<string, string> = {
+  // Brokerage / agent (shared across forms)
+  brokerage: 'اسم المكتب العقاري',
+  broker_license: 'رقم رخصة المكتب (RERA)',
+  agent_name: 'اسم الوكيل',
+  agent_brn: 'رقم تسجيل الوكيل (BRN)',
+  introducing_brokerage: 'المكتب المُحيل (Introducer)',
+  introducing_broker_license: 'رقم رخصة المكتب المُحيل',
+  introducing_agent_name: 'اسم الوكيل المُحيل',
+  introducing_agent_brn: 'رقم تسجيل الوكيل المُحيل',
+  listing_brokerage: 'المكتب المُدرج (Listing)',
+  listing_broker_license: 'رقم رخصة المكتب المُدرج',
+  listing_agent_name: 'اسم وكيل الإدراج',
+  listing_agent_brn: 'رقم تسجيل وكيل الإدراج',
+
+  // Seller fields (Form A, F)
+  seller_name: 'اسم البائع الكامل',
+  seller_emirates_id: 'رقم هوية البائع الإماراتية',
+  seller_phone: 'هاتف البائع',
+  seller_email: 'البريد الإلكتروني للبائع',
+
+  // Buyer fields (Form B, F)
+  buyer_name: 'اسم المشتري الكامل',
+  buyer_emirates_id: 'رقم هوية المشتري الإماراتية',
+  buyer_phone: 'هاتف المشتري',
+  buyer_email: 'البريد الإلكتروني للمشتري',
+  budget_min: 'الميزانية الدنيا',
+  budget_max: 'الميزانية القصوى',
+  property_types_wanted: 'أنواع العقارات المطلوبة',
+  preferred_locations: 'المناطق المفضّلة',
+
+  // Property
+  property_address: 'عنوان العقار',
+  property_dld_number: 'رقم سند الملكية (DLD)',
+  property_type: 'نوع العقار (شقة / فيلا / إلخ.)',
+
+  // Pricing
+  listing_price: 'سعر الإدراج',
+  transaction_price: 'سعر الصفقة',
+  deposit_amount: 'مبلغ التأمين',
+  currency: 'العملة',
+
+  // Commission
+  commission_percent: 'نسبة العمولة %',
+  total_commission_percent: 'إجمالي العمولة %',
+  split_introducer_percent: 'حصة المحيل %',
+  split_lister_percent: 'حصة المُدرج %',
+  commission_buyer_percent: 'عمولة جانب المشتري %',
+  commission_seller_percent: 'عمولة جانب البائع %',
+
+  // Terms
+  exclusivity_type: 'نوع الحصرية',
+  agreement_term_days: 'مدة الاتفاقية (أيام، حد أقصى 90 للحصرية)',
+  signing_date: 'تاريخ التوقيع',
+  completion_deadline_days: 'موعد الإكمال (أيام)',
+  dld_fee_payer: 'الجهة المُسدِّدة لرسوم DLD',
+  notes: 'ملاحظات إضافية',
+  settlement_terms: 'شروط التسوية',
+
+  // Cancellation (Form U)
+  cancelling_form_type: 'النموذج المراد إلغاؤه',
+  original_signing_date: 'تاريخ التوقيع الأصلي',
+  original_form_reference: 'مرجع/معرّف النموذج الأصلي',
+  client_name: 'اسم العميل',
+  client_emirates_id: 'رقم هوية العميل',
+  cancellation_initiator: 'الجهة المُلغية',
+  reason: 'سبب الإلغاء',
+  notice_date: 'تاريخ الإشعار',
+  effective_date: 'تاريخ النفاذ (≥ تاريخ الإشعار + 7 أيام)',
+};
+
 function normalizeBackendSchema(payload: Record<string, unknown>, type: string) {
   const raw = (payload.schema ?? payload) as BackendSchema;
   const required = new Set(raw.required ?? []);
   const fields = (raw.fields ?? []).map((f) => ({
     name: f.key,
-    label_ar: f.label ?? f.key,
+    label_ar: ARABIC_LABELS[f.key] ?? f.label ?? f.key,
     label_en: f.label ?? f.key,
     type: mapFieldType(f.type),
     required: required.has(f.key),
