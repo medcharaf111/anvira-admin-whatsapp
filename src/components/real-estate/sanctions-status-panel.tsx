@@ -44,10 +44,21 @@ const PROVIDER_META: Record<Provider, ProviderMeta> = {
   },
 };
 
+// Backend's canonical SanctionsResult strings (src/sanctions/types.ts):
+// 'clear' | 'possible_match' | 'confirmed_match' | 'error'.
+// The UI previously expected a different vocabulary ('clean' / 'match' /
+// 'review_needed'), so a real confirmed match fell through to the
+// catch-all and rendered as "خطأ من المزوّد". Aligning here.
 interface TestResult {
   provisioned: boolean;
-  result?: 'clean' | 'match' | 'review_needed' | 'error';
-  matched_lists?: string[];
+  result?: 'clear' | 'possible_match' | 'confirmed_match' | 'error';
+  matches?: Array<{
+    source: string;
+    matchedName: string;
+    matchScore: number;
+    listingUrl?: string;
+  }>;
+  matched_lists?: string[]; // legacy — pre-Track-D backend response shape
   notes?: string;
   provider?: string;
   error?: string;
@@ -297,21 +308,24 @@ function TestResultPill({ result }: { result: TestResult }) {
   }
 
   const r = result.result ?? 'error';
+  // 'confirmed_match' is the most severe (>= 0.85 score on the OpenSanctions
+  // adapter); 'possible_match' covers the 0.50-0.85 band that needs
+  // operator review; 'clear' is no hits; 'error' is provider failure.
   const color =
-    r === 'clean'
+    r === 'clear'
       ? 'var(--primary-glow)'
-      : r === 'match'
+      : r === 'confirmed_match'
       ? 'var(--signal)'
-      : r === 'review_needed'
+      : r === 'possible_match'
       ? 'var(--warn)'
       : 'var(--ink-faint)';
   const label =
-    r === 'clean'
+    r === 'clear'
       ? 'نظيف — لا تطابقات'
-      : r === 'match'
-      ? 'تطابق — يحتاج مراجعة بشرية'
-      : r === 'review_needed'
-      ? 'تطابق ضعيف — يُنصح بالمراجعة'
+      : r === 'confirmed_match'
+      ? 'تطابق مؤكّد — يحتاج مراجعة بشرية فوراً'
+      : r === 'possible_match'
+      ? 'تطابق محتمل — يُنصح بالمراجعة'
       : 'خطأ من المزوّد';
 
   return (
@@ -335,27 +349,49 @@ function TestResultPill({ result }: { result: TestResult }) {
         >
           {label}
         </div>
-        {result.matched_lists && result.matched_lists.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {result.matched_lists.map((l) => (
-              <span
-                key={l}
-                className="text-[10px] px-1.5 py-0.5"
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  background: 'var(--paper-lift)',
-                  border: '1px solid var(--rule)',
-                  borderRadius: '2px',
-                  color: 'var(--ink-soft)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                {l}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Track D — render dataset chips from either the new `matches[]`
+            shape (OpenSanctions provider, one entry per source hit) or the
+            legacy `matched_lists[]` strings the stub provider used to emit.
+            Dedupe by source so the same person across multiple lists shows
+            each list only once. */}
+        {(() => {
+          const sources = result.matches
+            ? Array.from(new Set(result.matches.map((m) => m.source)))
+            : (result.matched_lists ?? []);
+          if (sources.length === 0) return null;
+          return (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {sources.slice(0, 10).map((l) => (
+                <span
+                  key={l}
+                  className="text-[10px] px-1.5 py-0.5"
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    background: 'var(--paper-lift)',
+                    border: '1px solid var(--rule)',
+                    borderRadius: '2px',
+                    color: 'var(--ink-soft)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  {l}
+                </span>
+              ))}
+              {sources.length > 10 && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5"
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--ink-faint)',
+                  }}
+                >
+                  +{sources.length - 10}
+                </span>
+              )}
+            </div>
+          );
+        })()}
         {result.notes && (
           <p
             className="text-[11px] mt-1"
