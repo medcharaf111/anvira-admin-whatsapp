@@ -39,11 +39,19 @@ export async function POST(
     notes?: string;
   };
 
+  // Forward full operator attribution so the backend's audit_log row has
+  // user_id + email + IP, not just email. Regulator-grade trace: "this
+  // confirmation came from this user at this IP at this timestamp".
+  const actorIp =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '';
+
   const ctx = getInternalContext(client.id);
   const result = await callInternal(ctx, `/internal/data-requests/${id}/confirm`, {
     method: 'POST',
     headers: {
       'X-Actor-Email': user.email ?? '',
+      'X-Actor-User-Id': user.id,
+      'X-Actor-IP': actorIp,
     },
     body: JSON.stringify({ notes: body.notes }),
   });

@@ -142,6 +142,11 @@ const SETUP: NavGroup = {
     { href: '/knowledge-base', label: 'قاعدة المعرفة', icon: BookOpen },
     { href: '/templates', label: 'الردود الجاهزة', icon: FileText },
     { href: '/settings', label: 'الإعدادات', icon: Settings },
+    // Team membership + invitations — surfaced for every client_type
+    // since multi-user access is a baseline workspace feature, not a
+    // real-estate one. Role-based visibility lives on the page itself
+    // (non-owner/admin members get a read-only roster view).
+    { href: '/team', label: 'الفريق', icon: Users },
     {
       href: '/recovery',
       label: 'الاسترجاع',

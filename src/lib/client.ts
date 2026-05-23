@@ -22,6 +22,15 @@ export type TenantCountry = 'UAE' | 'KSA';
  */
 export type Transport = 'cloud_api' | 'evolution' | 'mock';
 
+/**
+ * Roles within a tenant. Backed by the public.tenant_role enum.
+ *   - owner  : everything, including team management + role changes
+ *   - admin  : everything except removing/demoting the owner
+ *   - agent  : full operational access (replies, KYC, bookings)
+ *   - viewer : read-only (UI-enforced for now; same RLS as agent)
+ */
+export type TenantRole = 'owner' | 'admin' | 'agent' | 'viewer';
+
 export interface CurrentClient {
   id: string;
   slug: string;
@@ -72,6 +81,12 @@ export interface CurrentClient {
   rega_company_id: string | null;
   /** Evolution server base URL for this tenant. Null pre-provision. */
   evolution_server_url: string | null;
+  /**
+   * The current operator's role on THIS tenant. Returns 'owner' when the
+   * user matches dashboard_clients.owner_id and no tenant_members row
+   * exists yet (legacy single-owner brokerages before migration backfill).
+   */
+  current_user_role: TenantRole;
 }
 
 /**
@@ -87,32 +102,66 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // Resolve the active tenant. Multi-tenant priority order:
+  //   1. tenant_members row with role='owner'    (own brokerage)
+  //   2. tenant_members row with any other role   (invited member)
+  //   3. dashboard_clients.owner_id = user.id     (legacy single-owner,
+  //      pre-team-migration fallback)
+  // Today we pick the FIRST match; per-tenant switching belongs in a
+  // future PR (tenant picker UI + cookie/session-stored client_id).
+  let activeClientId: string | null = null;
+  let resolvedRole: TenantRole | null = null;
+
+  const { data: memberships } = await supabase
+    .from('tenant_members')
+    .select('client_id, role, invited_at')
+    .eq('user_id', user.id)
+    .eq('status', 'accepted')
+    // Owners ranked first via the enum's lexical order trick — 'owner'
+    // sorts before 'admin'/'agent'/'viewer' alphabetically. Tie-break
+    // on invited_at to give returning multi-tenant operators a stable
+    // landing pad.
+    .order('role', { ascending: true })
+    .order('invited_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (memberships) {
+    activeClientId = memberships.client_id as string;
+    resolvedRole = memberships.role as TenantRole;
+  }
+
   // Wave-3 columns (kyc_enabled, calendar_mode, enabled_languages) may
   // not exist yet. We fall back to a narrower select if the wide one
   // fails so the dashboard stays usable on pre-migration databases.
   let data: Record<string, unknown> | null = null;
-  const wide = await supabase
+  const wideQuery = supabase
     .from('dashboard_clients')
     .select(
       'id, slug, name, owner_id, wa_number, is_sandbox, business_timezone, default_calendar_id, client_type, consent_required, data_region, kyc_enabled, calendar_mode, enabled_languages, transport, evolution_instance, evolution_server_url, country, fal_license_number, rega_company_id'
-    )
-    .eq('owner_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    );
+  const wide = await (activeClientId
+    ? wideQuery.eq('id', activeClientId).maybeSingle()
+    : wideQuery
+        .eq('owner_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle());
   if (wide.data) {
     data = wide.data as Record<string, unknown>;
   } else if (wide.error) {
     // Drop Wave-3 columns — legacy pre-migration select.
-    const narrow = await supabase
+    const narrowQuery = supabase
       .from('dashboard_clients')
       .select(
         'id, slug, name, owner_id, wa_number, is_sandbox, business_timezone, default_calendar_id, client_type, consent_required, data_region'
-      )
-      .eq('owner_id', user.id)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      );
+    const narrow = await (activeClientId
+      ? narrowQuery.eq('id', activeClientId).maybeSingle()
+      : narrowQuery
+          .eq('owner_id', user.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle());
     data = (narrow.data ?? null) as Record<string, unknown> | null;
   }
   if (!data) return null;
@@ -124,6 +173,11 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
     transportRaw === 'evolution' || transportRaw === 'mock'
       ? transportRaw
       : 'cloud_api';
+  // Role precedence: tenant_members.role (if we found one) wins; else
+  // the legacy owner_id-equals-user shortcut promotes the caller to
+  // owner (pre-migration single-owner brokerages).
+  const currentUserRole: TenantRole =
+    resolvedRole ?? (data.owner_id === user.id ? 'owner' : 'agent');
   return {
     id: data.id as string,
     slug: data.slug as string,
@@ -151,6 +205,7 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
         : null,
     fal_license_number: (data.fal_license_number ?? null) as string | null,
     rega_company_id: (data.rega_company_id ?? null) as string | null,
+    current_user_role: currentUserRole,
   };
 }
 

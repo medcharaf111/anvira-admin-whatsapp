@@ -103,8 +103,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'create_failed', detail: cErr?.message }, { status: 500 });
   }
 
-  // Seed empty KB and default settings rows
-  const [{ error: kbErr }, { error: stErr }] = await Promise.all([
+  // Seed empty KB, default settings, and the owner's tenant_members row.
+  // The tenant_members insert is what lets the team module + RLS
+  // recognize the signup user as an active owner going forward — the
+  // team migration backfilled existing tenants, this covers fresh ones.
+  const [{ error: kbErr }, { error: stErr }, { error: tmErr }] = await Promise.all([
     svc.from('knowledge_base').insert({
       client_id: client.id,
       business_name: body.name,
@@ -125,6 +128,14 @@ export async function POST(req: Request) {
       out_of_office: false,
       default_appointment_min: 30,
     }),
+    svc.from('tenant_members').insert({
+      client_id: client.id,
+      user_id: user.id,
+      role: 'owner',
+      invited_by: user.id,
+      accepted_at: new Date().toISOString(),
+      status: 'accepted',
+    }),
   ]);
   if (kbErr || stErr) {
     return NextResponse.json(
@@ -134,6 +145,15 @@ export async function POST(req: Request) {
         clientId: client.id,
       },
       { status: 500 }
+    );
+  }
+  // tenant_members failure is non-fatal: user_can_access_client() falls
+  // back to dashboard_clients.owner_id so the freshly-signed-up owner
+  // can still log in. Log so an operator can spot + backfill manually.
+  if (tmErr) {
+    console.warn(
+      '[onboarding] tenant_members seed failed (non-fatal, owner_id fallback applies):',
+      tmErr.message
     );
   }
 

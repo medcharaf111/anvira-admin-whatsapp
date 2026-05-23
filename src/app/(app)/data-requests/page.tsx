@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { requireCurrentClient } from '@/lib/client';
 import { PageHeader } from '@/components/page-header';
 import { DataRequestsView } from '@/components/real-estate/data-requests-view';
+import { RealtimeRefresh } from '@/components/realtime-refresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,21 @@ export default async function DataRequestsPage() {
 
   return (
     <div>
+      {/* Realtime subscription on data_deletion_requests for this tenant.
+          INSERT = a buyer just sent "delete my data" — appears in pending
+          section without manual refresh, helping the operator hit the
+          30-day PDPL SLA. UPDATE = another tab confirmed/cancelled —
+          reflects status change. Email alert + 30-min dedup live on the
+          backend insert path (see data-deletion.ts). */}
+      <RealtimeRefresh
+        subs={[
+          {
+            table: 'data_deletion_requests',
+            filter: `client_id=eq.${client.id}`,
+            events: ['INSERT', 'UPDATE'],
+          },
+        ]}
+      />
       <PageHeader
         eyebrow="09 / الامتثال"
         title="طلبات حذف البيانات (PDPL)"
