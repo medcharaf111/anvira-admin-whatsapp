@@ -8,6 +8,9 @@ interface Body {
   slug: string;
   timezone: string;
   language: 'ar' | 'en' | 'fr';
+  // ISO timestamp from the moment the operator ticked the ToS+Privacy
+  // checkbox on the onboarding form. Required per legal-posture addendum.
+  tos_accepted_at?: string;
 }
 
 export async function POST(req: Request) {
@@ -95,6 +98,36 @@ export async function POST(req: Request) {
       },
       { status: 500 }
     );
+  }
+
+  // Audit-log the ToS acceptance. Captures actor user + email + IP
+  // (from the request headers) so a regulator can verify when and
+  // by whom the agreement was accepted. Fire-and-forget — if audit
+  // log write fails, the account is still created (we'd rather have
+  // a usable account with a soft-missing audit row than a broken
+  // signup flow), but we log the failure so it's recoverable later.
+  if (body.tos_accepted_at) {
+    const ipHeader = req.headers.get('x-forwarded-for') ?? '';
+    const actorIp = ipHeader.split(',')[0]?.trim() || null;
+    void svc.from('audit_log').insert({
+      client_id: client.id,
+      actor_user_id: user.id,
+      actor_email: user.email ?? null,
+      actor_ip: actorIp,
+      action: 'onboarding.tos_accepted',
+      target_type: 'dashboard_clients',
+      target_id: client.id,
+      details: {
+        tos_accepted_at: body.tos_accepted_at,
+        tos_version: '2026-05-23',
+        privacy_version: '2026-05-23',
+        documents_referenced: ['/legal/terms', '/legal/privacy'],
+      },
+    }).then((r) => {
+      if (r.error) {
+        console.warn('[onboarding] tos audit log failed:', r.error.message);
+      }
+    });
   }
 
   return NextResponse.json({ ok: true, clientId: client.id });

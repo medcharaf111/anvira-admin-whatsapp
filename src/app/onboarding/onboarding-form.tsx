@@ -31,6 +31,12 @@ export function OnboardingForm() {
   const [slug, setSlug] = useState('');
   const [timezone, setTimezone] = useState('Asia/Riyadh');
   const [language, setLanguage] = useState('ar');
+  // PDPL + legal-posture addendum: brokerage administrator must accept
+  // the Terms of Service + Privacy Policy before account creation. The
+  // server-side route writes the acceptance into audit_log (action=
+  // 'onboarding.tos_accepted') so the consent is timestamped and tied
+  // to the actor user, which is what a regulator would ask for.
+  const [acceptedTos, setAcceptedTos] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +51,10 @@ export function OnboardingForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !slug.trim()) return;
+    if (!acceptedTos) {
+      setError('يرجى الموافقة على شروط الخدمة وسياسة الخصوصية للمتابعة');
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -57,6 +67,9 @@ export function OnboardingForm() {
           slug: slug.trim(),
           timezone,
           language,
+          // Per legal-posture addendum — server logs this as an
+          // audit_log row tied to the actor user + IP.
+          tos_accepted_at: new Date().toISOString(),
         }),
       });
       const json = await res.json();
@@ -132,6 +145,49 @@ export function OnboardingForm() {
         </select>
       </div>
 
+      {/* ToS / Privacy acceptance gate. Workflow-assistance framing —
+          uses "I agree to terms" not "I agree to be compliant", which
+          would be a false claim per the legal-posture addendum. */}
+      <label
+        className="flex items-start gap-3 text-[12px] leading-relaxed cursor-pointer p-3"
+        style={{
+          background: 'var(--paper-sink)',
+          border: '1px dashed var(--rule)',
+          borderRadius: '3px',
+          color: 'var(--ink-soft)',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={acceptedTos}
+          onChange={(e) => setAcceptedTos(e.target.checked)}
+          className="mt-0.5 shrink-0"
+          required
+        />
+        <span dir="rtl">
+          أوافق على{' '}
+          <a
+            href="https://anviraplus.it.com/legal/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--primary-glow)', textDecoration: 'underline' }}
+          >
+            شروط الخدمة
+          </a>{' '}
+          و
+          <a
+            href="https://anviraplus.it.com/legal/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--primary-glow)', textDecoration: 'underline' }}
+          >
+            سياسة الخصوصية
+          </a>
+          . Anvira مزوّد برمجيات يوفّر أدوات سير عمل. تبقى المسؤولية التنظيمية
+          كمكتب عقاري بموجب قوانين الإمارات والسعودية على عاتقك.
+        </span>
+      </label>
+
       {error && (
         <p className="text-xs" style={{ color: 'var(--signal)' }}>
           خطأ: {error}
@@ -140,7 +196,7 @@ export function OnboardingForm() {
 
       <button
         type="submit"
-        disabled={submitting || !name.trim() || !slug.trim()}
+        disabled={submitting || !name.trim() || !slug.trim() || !acceptedTos}
         className="btn-primary group w-full h-12 mt-4"
       >
         {submitting ? (
