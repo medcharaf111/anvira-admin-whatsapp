@@ -23,6 +23,7 @@ import {
   Home,
   DollarSign,
   Shield,
+  LifeBuoy,
   type LucideIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -127,6 +128,12 @@ const SETUP: NavGroup = {
     { href: '/knowledge-base', label: 'قاعدة المعرفة', icon: BookOpen },
     { href: '/templates', label: 'الردود الجاهزة', icon: FileText },
     { href: '/settings', label: 'الإعدادات', icon: Settings },
+    {
+      href: '/recovery',
+      label: 'الاسترجاع',
+      icon: LifeBuoy,
+      onlyFor: ['real_estate'],
+    },
   ],
 };
 
