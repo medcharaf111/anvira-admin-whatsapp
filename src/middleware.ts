@@ -23,7 +23,14 @@ export async function middleware(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   const path = req.nextUrl.pathname;
-  const isPublic = path === '/login' || path === '/reset-password';
+  // /invitations/* is reachable without auth — the invitee may not have
+  // an Anvira account yet; the page renders SignupInvitationForm to
+  // collect a password and provision the account inline. Auth users
+  // hitting the same URL still see the regular AcceptInvitationForm.
+  const isPublic =
+    path === '/login' ||
+    path === '/reset-password' ||
+    path.startsWith('/invitations/');
 
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', req.url));
