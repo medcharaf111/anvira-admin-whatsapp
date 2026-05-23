@@ -84,6 +84,27 @@ export function ReraFormDrawer({
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
   const [generated, setGenerated] = useState<GenerateResponse | null>(null);
+  // Track F — auto-fill provenance.
+  //   prefilledFields: field names that were originally seeded from prefill
+  //     (these get the AUTO badge). A field stays in this set even after
+  //     the operator edits it — it just gets added to editedPrefilledFields
+  //     too, so the audit log records "was auto-filled, then edited."
+  //   editedPrefilledFields: subset of prefilledFields that the operator
+  //     has subsequently touched. Used by the audit log to show diff.
+  //   reviewedConfirmed: the explicit "I have reviewed" gate — Generate
+  //     stays disabled until the operator ticks it for THIS drawer session.
+  //     Reset on each open so confirming once doesn't leak to next form.
+  const [prefilledFields, setPrefilledFields] = useState<Set<string>>(new Set());
+  const [editedPrefilledFields, setEditedPrefilledFields] = useState<Set<string>>(
+    new Set()
+  );
+  const [reviewedConfirmed, setReviewedConfirmed] = useState(false);
+  // Snapshot of the auto-filled values at hydrate time, kept so the audit
+  // diff can compare "what we suggested" vs "what was submitted" without
+  // re-querying.
+  const [prefilledSnapshot, setPrefilledSnapshot] = useState<Record<string, unknown>>(
+    {}
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -133,26 +154,46 @@ export function ReraFormDrawer({
 
   // Whenever the schema or prefill changes, hydrate the form values.
   // Operator-typed values take priority once they exist — we only seed
-  // empty fields from prefill.
+  // empty fields from prefill. Also tracks which field names were
+  // populated from prefill so the renderer can show the AUTO badge.
   useEffect(() => {
     if (!schema) {
       setValues({});
+      setPrefilledFields(new Set());
+      setPrefilledSnapshot({});
       return;
     }
     setValues((current) => {
       const next = { ...current };
+      const seeded = new Set<string>();
+      const snapshot: Record<string, unknown> = {};
       for (const f of schema.fields) {
         if (next[f.name] !== undefined) continue;
         if (Object.prototype.hasOwnProperty.call(prefill, f.name)) {
           const v = prefill[f.name];
           if (v !== null && v !== undefined && v !== '') {
             next[f.name] = v;
+            seeded.add(f.name);
+            snapshot[f.name] = v;
           }
         }
+      }
+      // Replace state only if we actually seeded anything new; otherwise
+      // a re-render shouldn't reset the badges the operator has already
+      // dismissed by editing.
+      if (seeded.size > 0) {
+        setPrefilledFields((curr) => new Set([...curr, ...seeded]));
+        setPrefilledSnapshot((curr) => ({ ...curr, ...snapshot }));
       }
       return next;
     });
   }, [schema, prefill]);
+
+  // Each new open() resets the review-confirm gate so confirming once
+  // doesn't leak across form generations.
+  useEffect(() => {
+    if (open) setReviewedConfirmed(false);
+  }, [open]);
 
   // Close on Escape.
   useEffect(() => {
@@ -177,6 +218,15 @@ export function ReraFormDrawer({
 
   function setField(name: string, value: unknown) {
     setValues((v) => ({ ...v, [name]: value }));
+    // If the operator edits a field that was originally prefilled, mark it
+    // edited so the audit trail can compare against prefilledSnapshot.
+    setEditedPrefilledFields((curr) => {
+      if (!prefilledFields.has(name)) return curr;
+      if (curr.has(name)) return curr;
+      const next = new Set(curr);
+      next.add(name);
+      return next;
+    });
   }
 
   async function generate() {
@@ -210,6 +260,15 @@ export function ReraFormDrawer({
             // them into the PDF metadata for audit trail.
             _source_lead_id: leadId,
             _source_property_id: propertyId,
+          },
+          // Track F — auto-fill provenance. Backend logs the diff to
+          // audit_log so a regulator can verify which values the
+          // operator actually reviewed vs which were auto-filled and
+          // signed off unchanged.
+          autofill_audit: {
+            prefilled_field_names: Array.from(prefilledFields),
+            edited_prefilled_field_names: Array.from(editedPrefilledFields),
+            prefilled_snapshot: prefilledSnapshot,
           },
         }),
       });
@@ -363,6 +422,8 @@ export function ReraFormDrawer({
                             field={f}
                             value={values[f.name]}
                             onChange={(v) => setField(f.name, v)}
+                            isPrefilled={prefilledFields.has(f.name)}
+                            isEditedPrefilled={editedPrefilledFields.has(f.name)}
                           />
                         ))}
                       </div>
@@ -375,52 +436,75 @@ export function ReraFormDrawer({
             {/* Footer */}
             {schema && (
               <div
-                className="px-6 py-4 shrink-0 flex items-center justify-between gap-3 flex-wrap"
+                className="px-6 py-4 shrink-0 flex flex-col gap-3"
                 style={{ borderTop: '1px solid var(--rule)' }}
               >
-                {generated?.url ? (
-                  <a
-                    href={generated.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[11px] tabular"
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--primary-glow)',
-                    }}
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    <span>فتح آخر PDF</span>
-                  </a>
-                ) : (
-                  <p
-                    className="text-[10px] flex-1"
-                    style={{ color: 'var(--ink-faint)' }}
-                  >
-                    سيتم فتح PDF في تبويب جديد + تنزيله تلقائياً.
-                  </p>
-                )}
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="btn-ghost h-10 text-xs px-4"
-                  >
-                    إلغاء
-                  </button>
-                  <button
-                    type="button"
-                    onClick={generate}
-                    disabled={submitting}
-                    className="btn-primary h-10 text-xs gap-1.5 px-4"
-                  >
-                    {submitting ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Download className="w-3.5 h-3.5" />
-                    )}
-                    <span>Generate PDF</span>
-                  </button>
+                {/* Track F — review-confirm gate. Generate stays disabled
+                    until the operator explicitly ticks the box, even when
+                    no fields were auto-filled. PDF generation is a
+                    regulator-facing artifact; an explicit "I reviewed" is
+                    the audit trail's first line of defense. */}
+                <label
+                  className="flex items-start gap-2 text-[12px] cursor-pointer"
+                  style={{ color: 'var(--ink-soft)' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={reviewedConfirmed}
+                    onChange={(e) => setReviewedConfirmed(e.target.checked)}
+                    className="mt-0.5 shrink-0"
+                  />
+                  <span dir="rtl">
+                    راجعت كل الحقول وأؤكّد أن البيانات صحيحة. (I have reviewed
+                    all fields and confirm they are accurate.)
+                  </span>
+                </label>
+
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  {generated?.url ? (
+                    <a
+                      href={generated.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-[11px] tabular"
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--primary-glow)',
+                      }}
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>فتح آخر PDF</span>
+                    </a>
+                  ) : (
+                    <p
+                      className="text-[10px] flex-1"
+                      style={{ color: 'var(--ink-faint)' }}
+                    >
+                      سيتم فتح PDF في تبويب جديد + تنزيله تلقائياً.
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="btn-ghost h-10 text-xs px-4"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="button"
+                      onClick={generate}
+                      disabled={submitting || !reviewedConfirmed}
+                      className="btn-primary h-10 text-xs gap-1.5 px-4 disabled:opacity-50"
+                    >
+                      {submitting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                      <span>Generate PDF</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -437,10 +521,14 @@ function FormFieldRenderer({
   field,
   value,
   onChange,
+  isPrefilled = false,
+  isEditedPrefilled = false,
 }: {
   field: FormField;
   value: unknown;
   onChange: (v: unknown) => void;
+  isPrefilled?: boolean;
+  isEditedPrefilled?: boolean;
 }) {
   const v = value == null ? '' : value;
   const baseLabel = (
@@ -449,6 +537,36 @@ function FormFieldRenderer({
       {field.required && (
         <span style={{ color: 'var(--signal)' }} aria-label="مطلوب">
           *
+        </span>
+      )}
+      {/* Track F — provenance badges. AUTO = seeded from prefill,
+          unchanged. EDITED = was auto-filled, operator touched it. */}
+      {isPrefilled && !isEditedPrefilled && (
+        <span
+          className="text-[9px] tracking-widest uppercase px-1.5 py-0.5"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            background: 'color-mix(in srgb, var(--primary-glow) 14%, transparent)',
+            color: 'var(--primary-glow)',
+            borderRadius: '2px',
+          }}
+          title="هذا الحقل مُعبَّأ تلقائياً من بيانات العميل / العقار"
+        >
+          AUTO
+        </span>
+      )}
+      {isEditedPrefilled && (
+        <span
+          className="text-[9px] tracking-widest uppercase px-1.5 py-0.5"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            background: 'color-mix(in srgb, var(--warn, #b6852b) 14%, transparent)',
+            color: 'var(--warn, #b6852b)',
+            borderRadius: '2px',
+          }}
+          title="كان مُعبَّأ تلقائياً ثم عدّلته"
+        >
+          EDITED
         </span>
       )}
       <span
