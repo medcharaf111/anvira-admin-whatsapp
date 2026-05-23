@@ -9,6 +9,10 @@ type Role = 'owner' | 'admin' | 'agent' | 'viewer';
 interface Member {
   id: string;
   user_id: string;
+  /** Resolved from auth.users on the backend. Empty string if lookup failed. */
+  email: string;
+  /** Optional display name from user_metadata.full_name / .name. */
+  name: string | null;
   role: Role;
   invited_at: string;
   accepted_at: string | null;
@@ -232,14 +236,12 @@ export function TeamView({
                 >
                   <div className="flex-1 min-w-0">
                     <div
-                      className="text-[12px] tabular flex items-center gap-2"
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        color: 'var(--ink)',
-                        wordBreak: 'break-all',
-                      }}
+                      className="text-[13px] flex items-center gap-2 flex-wrap"
+                      style={{ color: 'var(--ink)' }}
                     >
-                      <span>{m.user_id}</span>
+                      <span style={{ fontWeight: 500 }}>
+                        {m.name ?? m.email ?? m.user_id}
+                      </span>
                       {isSelf && (
                         <span
                           className="text-[10px] uppercase tracking-widest px-1.5"
@@ -253,6 +255,18 @@ export function TeamView({
                         </span>
                       )}
                     </div>
+                    {m.name && m.email && (
+                      <div
+                        className="text-[11px] mt-0.5"
+                        style={{
+                          color: 'var(--ink-soft)',
+                          fontFamily: 'var(--font-mono)',
+                        }}
+                        dir="ltr"
+                      >
+                        {m.email}
+                      </div>
+                    )}
                     <div
                       className="text-[11px] mt-1 flex items-center gap-3"
                       style={{ color: 'var(--ink-faint)' }}

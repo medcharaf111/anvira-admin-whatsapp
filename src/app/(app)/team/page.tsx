@@ -3,8 +3,19 @@ import { requireCurrentClient } from '@/lib/client';
 import { PageHeader } from '@/components/page-header';
 import { RealtimeRefresh } from '@/components/realtime-refresh';
 import { TeamView } from '@/components/team-view';
+import { callInternal, getInternalContext } from '@/lib/internal-api';
 
 export const dynamic = 'force-dynamic';
+
+interface EnrichedMember {
+  id: string;
+  user_id: string;
+  email: string;
+  name: string | null;
+  role: 'owner' | 'admin' | 'agent' | 'viewer';
+  invited_at: string;
+  accepted_at: string | null;
+}
 
 /**
  * /team — Tenant member management.
@@ -13,6 +24,10 @@ export const dynamic = 'force-dynamic';
  * read-only roster (useful so agents know who else is in the brokerage).
  * Pending invitations sit in their own section so they're not confused
  * with active members.
+ *
+ * Member roster comes from the backend (`GET /internal/team/members`)
+ * because the anon client can't read auth.users — joining for email +
+ * display name requires service role.
  */
 export default async function TeamPage() {
   const client = await requireCurrentClient();
@@ -21,31 +36,19 @@ export default async function TeamPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Member roster — pulls auth.users email via the foreign join. RLS on
-  // tenant_members already gates this to the current tenant via
-  // user_can_access_client(client_id). The auth.users join is allowed
-  // because the Supabase JS client embeds via the FK.
-  const { data: members } = await supabase
-    .from('tenant_members')
-    .select('id, user_id, role, invited_at, accepted_at, status')
-    .eq('client_id', client.id)
-    .eq('status', 'accepted')
-    .order('role', { ascending: true })
-    .order('invited_at', { ascending: true });
+  // Enriched member list (email + name joined from auth.users).
+  let memberRows: EnrichedMember[] = [];
+  const ctx = getInternalContext(client.id);
+  const memRes = await callInternal(ctx, '/internal/team/members', {
+    method: 'GET',
+  });
+  if (memRes.provisioned && memRes.ok) {
+    const body = memRes.json as { members?: EnrichedMember[] };
+    memberRows = body?.members ?? [];
+  }
 
-  // Resolve member emails via the auth admin API isn't available in the
-  // browser-side anon role — service role is on the backend. As a v1
-  // compromise we render user_id (uuid) and let the operator look up
-  // emails out-of-band. A follow-up could expose a /api/team/members
-  // endpoint that joins auth.users on the backend with service role.
-  const memberRows = (members ?? []).map((m) => ({
-    id: m.id as string,
-    user_id: m.user_id as string,
-    role: m.role as 'owner' | 'admin' | 'agent' | 'viewer',
-    invited_at: m.invited_at as string,
-    accepted_at: (m.accepted_at as string | null) ?? null,
-  }));
-
+  // Pending invitations come straight from the table — emails are
+  // stored on tenant_invitations itself, no enrichment needed.
   const { data: invites } = await supabase
     .from('tenant_invitations')
     .select('id, email, role, invited_at, expires_at, status')
