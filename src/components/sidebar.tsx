@@ -155,10 +155,18 @@ function buildGroups(
   clientType: ClientType,
   flags: { kycEnabled: boolean; isOperator: boolean }
 ): NavGroup[] {
+  // Track D — "Compliance & AML" is regulatory (UAE Federal Decree-Law
+  // 10/2025), not optional. Surface the nav entry for ALL real-estate
+  // tenants regardless of kyc_enabled — the page handles the not-yet-
+  // enabled state with an opt-in screen. Hiding it pre-enable was a
+  // chicken-and-egg footgun: operators couldn't discover the page to
+  // turn it on. flags.kycEnabled is still consulted elsewhere (alerts,
+  // dashboard badges) so it stays in the function signature.
+  void flags.kycEnabled;
   const compliance: NavGroup = {
     ...COMPLIANCE_BASE,
     items:
-      clientType === 'real_estate' && flags.kycEnabled
+      clientType === 'real_estate'
         ? [KYC_ITEM, ...COMPLIANCE_BASE.items]
         : COMPLIANCE_BASE.items,
   };
