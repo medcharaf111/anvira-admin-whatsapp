@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
-import { AcceptInvitationForm } from './accept-form';
+import { AcceptInvitationForm, SignupInvitationForm } from './accept-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +26,20 @@ async function fetchInvitation(
   }
 }
 
+/**
+ * /invitations/[token] — public-ish page (no current-tenant requirement).
+ *
+ * Three rendered states:
+ *   1. Invitation invalid (not found / expired / already resolved) — error panel.
+ *   2. Not signed in — show SignupInvitationForm so the invitee can pick a
+ *      password. We use Supabase admin createUser w/ email_confirm=true
+ *      under the hood (the invitation email IS the email verification).
+ *      After signup we immediately signInWithPassword + land them on
+ *      /conversations.
+ *   3. Signed in — show AcceptInvitationForm (existing flow). If their
+ *      session email doesn't match the invite email, render a warning
+ *      since the backend will reject the accept with email_mismatch.
+ */
 export default async function InvitationPage({
   params,
 }: {
@@ -34,20 +47,11 @@ export default async function InvitationPage({
 }) {
   const { token } = await params;
 
-  // The recipient must be signed in to accept — the auth context is the
-  // only way the backend can attach the invitation to a user_id. If
-  // they're not signed in, route to /login with a return URL so they
-  // come back here after auth.
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    redirect(`/login?next=/invitations/${encodeURIComponent(token)}`);
-  }
 
-  // Server-side fetch via the admin API. This page is rendered on the
-  // server, so use the same origin the request came in on.
   const origin =
     process.env.NEXT_PUBLIC_ADMIN_URL ??
     process.env.NEXT_PUBLIC_SITE_URL ??
@@ -115,13 +119,20 @@ export default async function InvitationPage({
               className="text-sm leading-relaxed mb-6"
               style={{ color: 'var(--ink-soft)' }}
             >
-              You were invited as <strong>{inv.role}</strong>. Accept to start
-              handling buyer conversations, KYC, and bookings for{' '}
-              <strong>{inv.business_name}</strong>.
+              You were invited as <strong>{inv.role}</strong>
+              {' — '}
+              <span style={{ fontFamily: 'var(--font-mono)' }}>
+                {inv.email}
+              </span>
+              .
             </p>
-            {user.email &&
+
+            {!user ? (
+              <SignupInvitationForm token={token} email={inv.email!} />
+            ) : user.email &&
               inv.email &&
-              user.email.toLowerCase() !== inv.email.toLowerCase() && (
+              user.email.toLowerCase() !== inv.email.toLowerCase() ? (
+              <>
                 <p
                   className="mb-6 p-3 text-xs"
                   style={{
@@ -131,13 +142,16 @@ export default async function InvitationPage({
                     color: 'var(--ink-soft)',
                   }}
                 >
-                  Heads up: this invitation was sent to{' '}
-                  <strong>{inv.email}</strong> but you're signed in as{' '}
-                  <strong>{user.email}</strong>. Accept will fail unless these
-                  match — sign out and back in with the invited email.
+                  This invitation was sent to <strong>{inv.email}</strong> but
+                  you're signed in as <strong>{user.email}</strong>. Sign out
+                  and back in with the invited email, or open this link in an
+                  incognito window.
                 </p>
-              )}
-            <AcceptInvitationForm token={token} />
+                <AcceptInvitationForm token={token} />
+              </>
+            ) : (
+              <AcceptInvitationForm token={token} />
+            )}
           </>
         )}
       </div>
