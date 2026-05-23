@@ -28,10 +28,52 @@ export interface KycCaseDetail {
   expected_purchase_currency: string | null;
   status: KycStatus;
   notes: string | null;
+  // Track D CDD fields. All optional on the wire; the backend's
+  // kyc_cases_cdd_minimum CHECK blocks status promotion when any are
+  // missing (the admin surfaces that as 422 cdd_incomplete).
+  date_of_birth: string | null;          // YYYY-MM-DD
+  funding_source_type: FundingSourceType | null;
+  is_entity: boolean;
+  beneficial_owner_name: string | null;
+  intended_use: IntendedUse | null;
   documents: KycDocument[];
   screening_log: ScreeningLogEntry[];
   required_doc_types: DocType[];
 }
+
+export type FundingSourceType =
+  | 'cash'
+  | 'mortgage'
+  | 'investment_income'
+  | 'company_funds'
+  | 'inheritance'
+  | 'sale_of_property'
+  | 'other';
+
+export type IntendedUse =
+  | 'residence'
+  | 'investment'
+  | 'rental'
+  | 'commercial'
+  | 'other';
+
+const FUNDING_SOURCE_LABELS: Record<FundingSourceType, { ar: string; en: string }> = {
+  cash: { ar: 'نقد', en: 'Cash' },
+  mortgage: { ar: 'تمويل عقاري', en: 'Mortgage' },
+  investment_income: { ar: 'دخل استثماري', en: 'Investment income' },
+  company_funds: { ar: 'أموال شركة', en: 'Company funds' },
+  inheritance: { ar: 'ميراث', en: 'Inheritance' },
+  sale_of_property: { ar: 'بيع عقار', en: 'Sale of property' },
+  other: { ar: 'أخرى', en: 'Other' },
+};
+
+const INTENDED_USE_LABELS: Record<IntendedUse, { ar: string; en: string }> = {
+  residence: { ar: 'سكن خاص', en: 'Residence' },
+  investment: { ar: 'استثمار', en: 'Investment' },
+  rental: { ar: 'تأجير', en: 'Rental' },
+  commercial: { ar: 'تجاري', en: 'Commercial' },
+  other: { ar: 'أخرى', en: 'Other' },
+};
 
 export interface KycDocument {
   id: string;
@@ -152,7 +194,18 @@ export function KycCaseDrawer({
   }
 
   async function patchCase(
-    body: Partial<Pick<KycCaseDetail, 'status' | 'notes'>>,
+    body: Partial<
+      Pick<
+        KycCaseDetail,
+        | 'status'
+        | 'notes'
+        | 'date_of_birth'
+        | 'funding_source_type'
+        | 'is_entity'
+        | 'beneficial_owner_name'
+        | 'intended_use'
+      >
+    >,
     silent = false
   ) {
     if (!detail) return;
@@ -375,6 +428,12 @@ export function KycCaseDrawer({
                     />
                   </div>
                 </section>
+
+                {/* Track D — CDD editor. Inline-editable so operator can
+                    populate the fields the kyc_cases_cdd_minimum CHECK
+                    requires before promoting status past docs_pending.
+                    Each input saves on blur via patchCase (silent). */}
+                <CddEditor detail={detail} patchCase={patchCase} />
 
                 {/* Section 2: Documents */}
                 <section>
@@ -649,6 +708,259 @@ function Row({
       >
         {value}
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+ * CDD Editor — Track D admin polish
+ * ─────────────────────────────────────────────────────────────────────
+ * Renders editable inputs for the 5 CDD fields the kyc_cases_cdd_minimum
+ * CHECK enforces before a case can move past docs_pending:
+ *   - date_of_birth (HTML date input)
+ *   - funding_source_type (select)
+ *   - intended_use (select)
+ *   - is_entity (checkbox; gates beneficial_owner_name visibility)
+ *   - beneficial_owner_name (text, required when is_entity)
+ *
+ * Each field saves on blur via patchCase (silent, no toast). The
+ * "Missing CDD fields" warning at the top lists what's still required
+ * so the operator knows what's blocking status promotion.
+ */
+function CddEditor({
+  detail,
+  patchCase,
+}: {
+  detail: KycCaseDetail;
+  patchCase: (
+    body: Partial<
+      Pick<
+        KycCaseDetail,
+        | 'date_of_birth'
+        | 'funding_source_type'
+        | 'is_entity'
+        | 'beneficial_owner_name'
+        | 'intended_use'
+      >
+    >,
+    silent?: boolean
+  ) => Promise<void>;
+}) {
+  const [dob, setDob] = useState(detail.date_of_birth ?? '');
+  const [funding, setFunding] = useState<FundingSourceType | ''>(
+    detail.funding_source_type ?? ''
+  );
+  const [use, setUse] = useState<IntendedUse | ''>(detail.intended_use ?? '');
+  const [isEntity, setIsEntity] = useState(detail.is_entity);
+  const [bo, setBo] = useState(detail.beneficial_owner_name ?? '');
+
+  // Compute what's still missing so the operator sees a single line of
+  // "needs: X, Y, Z" rather than discovering it via a failed status
+  // promotion. Mirrors the backend CHECK exactly.
+  const missing: string[] = [];
+  if (!dob) missing.push('تاريخ الميلاد');
+  if (!funding) missing.push('مصدر التمويل');
+  if (!use) missing.push('الغرض');
+  if (isEntity && !bo.trim()) missing.push('المالك المستفيد');
+
+  return (
+    <section>
+      <SectionHead label="CUSTOMER DUE DILIGENCE · CDD" />
+      <div
+        className="space-y-3 p-4"
+        style={{
+          background: 'var(--paper-lift)',
+          border: '1px solid var(--rule)',
+          borderRadius: '3px',
+        }}
+      >
+        {missing.length > 0 && (
+          <div
+            className="text-xs px-3 py-2"
+            style={{
+              background: 'color-mix(in srgb, var(--warn, #b6852b) 12%, var(--paper))',
+              border: '1px solid color-mix(in srgb, var(--warn, #b6852b) 40%, var(--rule))',
+              borderRadius: '3px',
+              color: 'var(--ink-soft)',
+            }}
+            dir="rtl"
+          >
+            <strong>مطلوب لإكمال CDD:</strong> {missing.join('، ')}.{' '}
+            <span style={{ color: 'var(--ink-faint)' }}>
+              ترقية الحالة محظورة حتى تكتمل هذه الحقول.
+            </span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Date of birth */}
+          <FieldLabel ar="تاريخ الميلاد" en="Date of birth">
+            <input
+              type="date"
+              value={dob}
+              onChange={(e) => setDob(e.target.value)}
+              onBlur={() => {
+                if ((dob || null) !== detail.date_of_birth) {
+                  void patchCase({ date_of_birth: dob || null }, true);
+                }
+              }}
+              className="w-full h-9 px-2 text-sm tabular outline-none"
+              style={{
+                background: 'var(--paper)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                color: 'var(--ink)',
+                fontFamily: 'var(--font-mono)',
+              }}
+            />
+          </FieldLabel>
+
+          {/* Funding source */}
+          <FieldLabel ar="مصدر التمويل" en="Funding source">
+            <select
+              value={funding}
+              onChange={(e) => {
+                const v = (e.target.value as FundingSourceType) || '';
+                setFunding(v);
+                void patchCase({ funding_source_type: v || null }, true);
+              }}
+              className="w-full h-9 px-2 text-sm outline-none"
+              style={{
+                background: 'var(--paper)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                color: 'var(--ink)',
+              }}
+              dir="rtl"
+            >
+              <option value="">—</option>
+              {(Object.keys(FUNDING_SOURCE_LABELS) as FundingSourceType[]).map((k) => (
+                <option key={k} value={k}>
+                  {FUNDING_SOURCE_LABELS[k].ar} · {FUNDING_SOURCE_LABELS[k].en}
+                </option>
+              ))}
+            </select>
+          </FieldLabel>
+
+          {/* Intended use */}
+          <FieldLabel ar="الغرض من الشراء" en="Intended use">
+            <select
+              value={use}
+              onChange={(e) => {
+                const v = (e.target.value as IntendedUse) || '';
+                setUse(v);
+                void patchCase({ intended_use: v || null }, true);
+              }}
+              className="w-full h-9 px-2 text-sm outline-none"
+              style={{
+                background: 'var(--paper)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                color: 'var(--ink)',
+              }}
+              dir="rtl"
+            >
+              <option value="">—</option>
+              {(Object.keys(INTENDED_USE_LABELS) as IntendedUse[]).map((k) => (
+                <option key={k} value={k}>
+                  {INTENDED_USE_LABELS[k].ar} · {INTENDED_USE_LABELS[k].en}
+                </option>
+              ))}
+            </select>
+          </FieldLabel>
+
+          {/* is_entity toggle */}
+          <FieldLabel ar="المشتري كيان اعتباري؟" en="Is entity?">
+            <label
+              className="inline-flex items-center gap-2 h-9 px-2 text-sm cursor-pointer"
+              style={{
+                background: 'var(--paper)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                color: 'var(--ink)',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isEntity}
+                onChange={(e) => {
+                  const v = e.target.checked;
+                  setIsEntity(v);
+                  // Clear BO when switching back to natural person.
+                  void patchCase(
+                    v
+                      ? { is_entity: true }
+                      : { is_entity: false, beneficial_owner_name: null },
+                    true
+                  );
+                  if (!v) setBo('');
+                }}
+              />
+              <span dir="rtl">شركة أو منشأة</span>
+            </label>
+          </FieldLabel>
+
+          {/* Beneficial owner — only when is_entity */}
+          {isEntity && (
+            <FieldLabel ar="المالك المستفيد" en="Beneficial owner" className="sm:col-span-2">
+              <input
+                type="text"
+                value={bo}
+                onChange={(e) => setBo(e.target.value)}
+                onBlur={() => {
+                  if ((bo.trim() || null) !== detail.beneficial_owner_name) {
+                    void patchCase(
+                      { beneficial_owner_name: bo.trim() || null },
+                      true
+                    );
+                  }
+                }}
+                placeholder="الاسم الكامل للمالك المستفيد الفعلي"
+                className="w-full h-9 px-2 text-sm outline-none"
+                style={{
+                  background: 'var(--paper)',
+                  border: '1px solid var(--rule)',
+                  borderRadius: '3px',
+                  color: 'var(--ink)',
+                }}
+                dir="rtl"
+              />
+            </FieldLabel>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FieldLabel({
+  ar,
+  en,
+  children,
+  className,
+}: {
+  ar: string;
+  en: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <div
+        className="flex items-baseline justify-between mb-1"
+        style={{ color: 'var(--ink-faint)' }}
+      >
+        <span className="text-xs" dir="rtl">
+          {ar}
+        </span>
+        <span
+          className="text-[10px] tracking-widest uppercase"
+          style={{ fontFamily: 'var(--font-mono)' }}
+        >
+          {en}
+        </span>
+      </div>
+      {children}
     </div>
   );
 }

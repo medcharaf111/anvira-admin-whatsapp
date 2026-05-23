@@ -135,7 +135,25 @@ function extractMatchedLists(raw: unknown): string[] {
   return Array.from(out);
 }
 
-const ALLOWED_PATCH = ['status', 'notes'] as const;
+// Mirror the backend's whitelist (src/webhook/internalRouter.ts).
+// Includes Track D CDD fields the drawer's editor surfaces. Backend
+// still validates each value at the DB layer (CHECK constraints +
+// enum sets) — this list is just the surface area the admin allows.
+const ALLOWED_PATCH = [
+  'status',
+  'notes',
+  'date_of_birth',
+  'funding_source_type',
+  'is_entity',
+  'beneficial_owner_name',
+  'intended_use',
+  'customer_name',
+  'customer_nationality',
+  'pep_declared',
+  'source_of_funds',
+  'expected_purchase_amount',
+  'expected_purchase_currency',
+] as const;
 
 export async function PATCH(
   req: NextRequest,
@@ -165,14 +183,14 @@ export async function PATCH(
     return NextResponse.json({ error: 'no_fields' }, { status: 400 });
   }
 
-  // Backend has no PATCH /kyc/cases/:id — status changes go through the
-  // dedicated POST /kyc/cases/:id/status endpoint which carries the
-  // status + optional notes. If we ever add other patchable fields the
-  // backend will need a generic PATCH; for now status (and the notes
-  // riding alongside it) is the only mutation.
+  // Generic PATCH endpoint on the backend (added with Track D admin
+  // polish) handles all whitelisted field updates including status
+  // changes. The dedicated POST /status route still exists for the
+  // drawer's status quick-buttons but we route everything through
+  // PATCH from here for uniformity.
   const ctx = getInternalContext(client.id);
-  const result = await callInternal(ctx, `/internal/kyc/cases/${id}/status`, {
-    method: 'POST',
+  const result = await callInternal(ctx, `/internal/kyc/cases/${id}`, {
+    method: 'PATCH',
     body: JSON.stringify(updates),
   });
   if (!result.provisioned) {
