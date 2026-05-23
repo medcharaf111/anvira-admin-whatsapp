@@ -15,6 +15,26 @@ const LANGUAGES = [
   { value: 'fr', label: 'Français' },
 ];
 
+// Per legal-posture addendum. DIFC + ADGM are blocked at signup with
+// a waitlist explainer until v1.5 supports their distinct DP laws.
+// Order matches the typical confusion gradient: UAE-mainland and KSA
+// first (the supported cases), then DIFC/ADGM (the blocked ones),
+// then "other" (covered by a different explainer).
+type Jurisdiction =
+  | 'uae_mainland'
+  | 'ksa_mainland'
+  | 'difc'
+  | 'adgm'
+  | 'other';
+
+const JURISDICTIONS: Array<{ value: Jurisdiction; label: string; blocked: boolean }> = [
+  { value: 'uae_mainland', label: 'UAE — Mainland (مكتب في الإمارات، خارج المناطق الحرة المالية)', blocked: false },
+  { value: 'ksa_mainland', label: 'KSA — Mainland (مكتب في السعودية)', blocked: false },
+  { value: 'difc', label: 'UAE — DIFC (Dubai International Financial Centre)', blocked: true },
+  { value: 'adgm', label: 'UAE — ADGM (Abu Dhabi Global Market)', blocked: true },
+  { value: 'other', label: 'Other / Else (واتساب لاحقاً)', blocked: true },
+];
+
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -31,6 +51,7 @@ export function OnboardingForm() {
   const [slug, setSlug] = useState('');
   const [timezone, setTimezone] = useState('Asia/Riyadh');
   const [language, setLanguage] = useState('ar');
+  const [jurisdiction, setJurisdiction] = useState<Jurisdiction>('uae_mainland');
   // PDPL + legal-posture addendum: brokerage administrator must accept
   // the Terms of Service + Privacy Policy before account creation. The
   // server-side route writes the acceptance into audit_log (action=
@@ -51,6 +72,19 @@ export function OnboardingForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !slug.trim()) return;
+
+    // DIFC / ADGM / other are blocked at signup per the legal-posture
+    // addendum. Client-side guard mirrors a server-side check in the
+    // onboarding route so a curl-savvy operator can't bypass it.
+    const j = JURISDICTIONS.find((x) => x.value === jurisdiction);
+    if (j?.blocked) {
+      setError(
+        'لا ندعم حالياً المكاتب المسجّلة في DIFC / ADGM أو خارج الإمارات والسعودية. ' +
+          'انضم لقائمة الانتظار: legal@anviraplus.it.com'
+      );
+      return;
+    }
+
     if (!acceptedTos) {
       setError('يرجى الموافقة على شروط الخدمة وسياسة الخصوصية للمتابعة');
       return;
@@ -67,6 +101,7 @@ export function OnboardingForm() {
           slug: slug.trim(),
           timezone,
           language,
+          regulatory_jurisdiction: jurisdiction,
           // Per legal-posture addendum — server logs this as an
           // audit_log row tied to the actor user + IP.
           tos_accepted_at: new Date().toISOString(),
@@ -145,6 +180,49 @@ export function OnboardingForm() {
         </select>
       </div>
 
+      <div>
+        <label className="field-label">الاختصاص التنظيمي · Regulatory jurisdiction</label>
+        <select
+          value={jurisdiction}
+          onChange={(e) => setJurisdiction(e.target.value as Jurisdiction)}
+          className="input-boxed"
+        >
+          {JURISDICTIONS.map((j) => (
+            <option key={j.value} value={j.value}>
+              {j.label}
+              {j.blocked ? ' — (غير مدعوم حالياً)' : ''}
+            </option>
+          ))}
+        </select>
+        {JURISDICTIONS.find((j) => j.value === jurisdiction)?.blocked && (
+          <div
+            className="mt-2 p-3 text-[11px] leading-relaxed"
+            style={{
+              background: 'color-mix(in srgb, var(--warn, #b6852b) 12%, var(--paper-sink))',
+              border: '1px solid color-mix(in srgb, var(--warn, #b6852b) 40%, var(--rule))',
+              borderRadius: '3px',
+              color: 'var(--ink-soft)',
+            }}
+            dir="rtl"
+          >
+            DIFC و ADGM يعملان وفق قوانين حماية بيانات خاصة (DIFC DP Law،
+            ADGM DPR) تختلف عن PDPL الاتحادي. v1 من Anvira غير مصمَّمة لها.
+            للانضمام لقائمة الانتظار، راسلنا على{' '}
+            <a
+              href="mailto:legal@anviraplus.it.com"
+              style={{ color: 'var(--primary-glow)', textDecoration: 'underline' }}
+            >
+              legal@anviraplus.it.com
+            </a>
+            .
+          </div>
+        )}
+        <p className="text-[10px] mt-1.5" style={{ color: 'var(--ink-faint)' }}>
+          نحتاج هذا الحقل لاختيار إطار الامتثال الصحيح (PDPL اتحادي، أو
+          قوانين المناطق الحرة).
+        </p>
+      </div>
+
       {/* ToS / Privacy acceptance gate. Workflow-assistance framing —
           uses "I agree to terms" not "I agree to be compliant", which
           would be a false claim per the legal-posture addendum. */}
@@ -196,7 +274,13 @@ export function OnboardingForm() {
 
       <button
         type="submit"
-        disabled={submitting || !name.trim() || !slug.trim() || !acceptedTos}
+        disabled={
+          submitting ||
+          !name.trim() ||
+          !slug.trim() ||
+          !acceptedTos ||
+          (JURISDICTIONS.find((x) => x.value === jurisdiction)?.blocked ?? false)
+        }
         className="btn-primary group w-full h-12 mt-4"
       >
         {submitting ? (

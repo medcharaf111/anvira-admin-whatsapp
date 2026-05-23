@@ -11,7 +11,20 @@ interface Body {
   // ISO timestamp from the moment the operator ticked the ToS+Privacy
   // checkbox on the onboarding form. Required per legal-posture addendum.
   tos_accepted_at?: string;
+  // Per legal-posture addendum — DIFC / ADGM blocked at signup.
+  regulatory_jurisdiction?:
+    | 'uae_mainland'
+    | 'difc'
+    | 'adgm'
+    | 'ksa_mainland'
+    | 'other';
 }
+
+// Mirror the client-side block so a curl-savvy operator can't bypass
+// the form. 'other' is also blocked because we don't have a
+// regulatory-framework story for non-UAE-mainland / non-KSA tenants yet.
+const SUPPORTED_JURISDICTIONS = new Set(['uae_mainland', 'ksa_mainland']);
+const BLOCKED_JURISDICTIONS = new Set(['difc', 'adgm', 'other']);
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -26,6 +39,27 @@ export async function POST(req: Request) {
   }
   if (!/^[a-z0-9-]{2,40}$/.test(body.slug)) {
     return NextResponse.json({ error: 'invalid_slug' }, { status: 400 });
+  }
+
+  // Server-side jurisdiction guard. The form blocks DIFC/ADGM/other
+  // client-side but we re-check here to defend against direct API calls.
+  const jurisdiction = body.regulatory_jurisdiction ?? 'uae_mainland';
+  if (BLOCKED_JURISDICTIONS.has(jurisdiction)) {
+    return NextResponse.json(
+      {
+        error: 'jurisdiction_blocked',
+        detail:
+          'Anvira does not currently support brokerages registered in DIFC, ADGM, or outside UAE/KSA. ' +
+          'Email legal@anviraplus.it.com for the waitlist.',
+      },
+      { status: 403 }
+    );
+  }
+  if (!SUPPORTED_JURISDICTIONS.has(jurisdiction)) {
+    return NextResponse.json(
+      { error: 'invalid_jurisdiction' },
+      { status: 400 }
+    );
   }
 
   const svc = createServiceClient();
@@ -50,7 +84,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'slug_taken' }, { status: 409 });
   }
 
-  // Create the client (no Twilio number until they upgrade to Pro)
+  // Create the client (no Twilio number until they upgrade to Pro).
+  // regulatory_jurisdiction stored so the compliance module knows
+  // which framework (UAE Federal PDPL vs KSA PDPL) to apply.
   const { data: client, error: cErr } = await svc
     .from('dashboard_clients')
     .insert({
@@ -59,6 +95,7 @@ export async function POST(req: Request) {
       owner_id: user.id,
       is_sandbox: false,
       business_timezone: body.timezone || 'Asia/Riyadh',
+      regulatory_jurisdiction: jurisdiction,
     })
     .select('id')
     .single();
