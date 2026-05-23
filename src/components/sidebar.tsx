@@ -24,6 +24,7 @@ import {
   DollarSign,
   Shield,
   LifeBuoy,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -102,6 +103,15 @@ const COMPLIANCE_BASE: NavGroup = {
   onlyFor: ['real_estate'],
   items: [
     { href: '/forms', label: 'النماذج (RERA)', icon: FileText },
+    {
+      // PDPL Art. 8 deletion requests — operator manages confirms/cancels.
+      // Open to RE only since that's where the current pilot tenants sit;
+      // can be promoted out of the onlyFor when clinic/salon tenants
+      // start needing PDPL surfaces too.
+      href: '/data-requests',
+      label: 'طلبات حذف البيانات',
+      icon: Trash2,
+    },
     { href: '/audit', label: 'سجل النشاط', icon: ScrollText },
   ],
 };
