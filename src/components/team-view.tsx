@@ -360,14 +360,17 @@ function InviteForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), role }),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+      };
       if (!res.ok) {
         toast.error(
           j.error === 'already_invited'
             ? 'This email already has a pending invitation.'
             : j.error === 'cannot_invite_owner'
               ? 'Only the current owner can transfer ownership.'
-              : `Could not invite (${j.error ?? 'unknown'})`
+              : `Could not invite (${j.error ?? 'unknown'}${j.detail ? `: ${j.detail}` : ''})`
         );
         return;
       }
