@@ -41,6 +41,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'invalid_slug' }, { status: 400 });
   }
 
+  // ToS acceptance is REQUIRED — the form always sends it, but a
+  // curl-savvy operator could previously POST without it and end up
+  // with a working account and zero audit_log evidence of consent.
+  // The legal-posture addendum requires the audit row, so without a
+  // valid timestamp we refuse the signup entirely (400, no DB writes).
+  if (!body.tos_accepted_at || Number.isNaN(Date.parse(body.tos_accepted_at))) {
+    return NextResponse.json(
+      {
+        error: 'tos_required',
+        detail:
+          'tos_accepted_at (ISO timestamp) is required. Anvira may not create accounts without recording explicit acceptance of the Terms of Service and Privacy Policy.',
+      },
+      { status: 400 }
+    );
+  }
+
   // Server-side jurisdiction guard. The form blocks DIFC/ADGM/other
   // client-side but we re-check here to defend against direct API calls.
   const jurisdiction = body.regulatory_jurisdiction ?? 'uae_mainland';
@@ -159,33 +175,32 @@ export async function POST(req: Request) {
 
   // Audit-log the ToS acceptance. Captures actor user + email + IP
   // (from the request headers) so a regulator can verify when and
-  // by whom the agreement was accepted. Fire-and-forget — if audit
-  // log write fails, the account is still created (we'd rather have
-  // a usable account with a soft-missing audit row than a broken
-  // signup flow), but we log the failure so it's recoverable later.
-  if (body.tos_accepted_at) {
-    const ipHeader = req.headers.get('x-forwarded-for') ?? '';
-    const actorIp = ipHeader.split(',')[0]?.trim() || null;
-    void svc.from('audit_log').insert({
-      client_id: client.id,
-      actor_user_id: user.id,
-      actor_email: user.email ?? null,
-      actor_ip: actorIp,
-      action: 'onboarding.tos_accepted',
-      target_type: 'dashboard_clients',
-      target_id: client.id,
-      details: {
-        tos_accepted_at: body.tos_accepted_at,
-        tos_version: '2026-05-23',
-        privacy_version: '2026-05-23',
-        documents_referenced: ['/legal/terms', '/legal/privacy'],
-      },
-    }).then((r) => {
-      if (r.error) {
-        console.warn('[onboarding] tos audit log failed:', r.error.message);
-      }
-    });
-  }
+  // by whom the agreement was accepted. `tos_accepted_at` is now
+  // required by the validation block above, so this insert always
+  // fires. Fire-and-forget — if the audit log write hiccups we still
+  // return success to the operator (account is created either way),
+  // but a failure here is a real compliance smell so we log loudly.
+  const ipHeader = req.headers.get('x-forwarded-for') ?? '';
+  const actorIp = ipHeader.split(',')[0]?.trim() || null;
+  void svc.from('audit_log').insert({
+    client_id: client.id,
+    actor_user_id: user.id,
+    actor_email: user.email ?? null,
+    actor_ip: actorIp,
+    action: 'onboarding.tos_accepted',
+    target_type: 'dashboard_clients',
+    target_id: client.id,
+    details: {
+      tos_accepted_at: body.tos_accepted_at,
+      tos_version: '2026-05-23',
+      privacy_version: '2026-05-23',
+      documents_referenced: ['/legal/terms', '/legal/privacy'],
+    },
+  }).then((r) => {
+    if (r.error) {
+      console.error('[onboarding] tos audit log failed:', r.error.message);
+    }
+  });
 
   return NextResponse.json({ ok: true, clientId: client.id });
 }
