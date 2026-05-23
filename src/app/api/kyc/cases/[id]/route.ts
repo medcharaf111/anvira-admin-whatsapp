@@ -165,19 +165,45 @@ export async function PATCH(
     return NextResponse.json({ error: 'no_fields' }, { status: 400 });
   }
 
+  // Backend has no PATCH /kyc/cases/:id — status changes go through the
+  // dedicated POST /kyc/cases/:id/status endpoint which carries the
+  // status + optional notes. If we ever add other patchable fields the
+  // backend will need a generic PATCH; for now status (and the notes
+  // riding alongside it) is the only mutation.
   const ctx = getInternalContext(client.id);
-  const result = await callInternal(ctx, `/internal/kyc/cases/${id}`, {
-    method: 'PATCH',
+  const result = await callInternal(ctx, `/internal/kyc/cases/${id}/status`, {
+    method: 'POST',
     body: JSON.stringify(updates),
   });
   if (!result.provisioned) {
     return NextResponse.json({ error: 'kyc_backend_not_provisioned' }, { status: 503 });
   }
   if (!result.ok) {
-    return NextResponse.json(
-      (result.json as Record<string, unknown>) ?? { error: 'backend_error' },
-      { status: result.status }
-    );
+    // Surface the CDD-completion-gate violation with a friendly,
+    // operator-actionable shape so the drawer can render
+    // "needs date_of_birth, funding_source_type, intended_use" instead of
+    // a generic 500. Other DB errors fall through verbatim.
+    const j = (result.json as Record<string, unknown> | null) ?? {};
+    const detail = String(j.detail ?? '');
+    if (j.error === 'db_failed' && detail.includes('kyc_cases_cdd_minimum')) {
+      return NextResponse.json(
+        {
+          error: 'cdd_incomplete',
+          detail:
+            'Status promotion blocked: case is missing required CDD fields. ' +
+            'Fill date_of_birth, funding_source_type, intended_use ' +
+            '(and beneficial_owner_name when is_entity=true) before promoting.',
+          missing_hint: [
+            'date_of_birth',
+            'funding_source_type',
+            'intended_use',
+            'beneficial_owner_name (when is_entity)',
+          ],
+        },
+        { status: 422 }
+      );
+    }
+    return NextResponse.json(j, { status: result.status });
   }
 
   logAction({

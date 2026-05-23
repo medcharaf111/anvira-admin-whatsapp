@@ -38,19 +38,45 @@ export async function GET(
   }
 
   try {
-    const res = await fetch(`${backend}/internal/kyc/cases/${id}/report-pdf`, {
+    // Backend's /report-pdf doesn't return PDF bytes directly — it stashes
+    // the PDF on the ephemeral payments/pdf-temp host (10-min token-gated)
+    // and returns `{ok, url, filename, bytes}`. We follow the URL,
+    // stream the actual PDF bytes back to the browser, and attach the
+    // download disposition. This preserves the admin audit log and keeps
+    // the temp URL out of the operator's browser history.
+    const metaRes = await fetch(`${backend}/internal/kyc/cases/${id}/report-pdf`, {
       headers: { 'X-Internal-Secret': secret, 'X-Client-Id': client.id },
       cache: 'no-store',
     });
-    if (res.status === 404) {
+    if (metaRes.status === 404) {
       return NextResponse.json({ error: 'kyc_backend_not_provisioned' }, { status: 503 });
     }
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      return NextResponse.json(j, { status: res.status });
+    if (!metaRes.ok) {
+      const j = await metaRes.json().catch(() => ({}));
+      return NextResponse.json(j, { status: metaRes.status });
+    }
+    const meta = (await metaRes.json().catch(() => null)) as
+      | { ok?: boolean; url?: string; filename?: string }
+      | null;
+    if (!meta?.url) {
+      return NextResponse.json(
+        { error: 'pdf_url_missing', detail: 'Backend did not return a stashed PDF URL.' },
+        { status: 502 }
+      );
     }
 
-    const buf = await res.arrayBuffer();
+    // Follow the temp URL. It's served on the public api domain by
+    // src/payments/pdf-host.ts behind a 24-char token — no shared secret
+    // required, the token is the cap.
+    const pdfRes = await fetch(meta.url, { cache: 'no-store' });
+    if (!pdfRes.ok) {
+      return NextResponse.json(
+        { error: 'pdf_fetch_failed', status: pdfRes.status },
+        { status: 502 }
+      );
+    }
+    const buf = await pdfRes.arrayBuffer();
+
     logAction({
       clientId: client.id,
       actorUserId: user.id,
@@ -63,7 +89,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="kyc-${id}.pdf"`,
+        'Content-Disposition': `attachment; filename="${meta.filename ?? `kyc-${id}.pdf`}"`,
         'Cache-Control': 'no-store',
       },
     });
