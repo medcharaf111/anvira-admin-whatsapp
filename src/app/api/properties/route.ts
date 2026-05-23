@@ -26,7 +26,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('properties')
     .select(
-      'id, reference, type, bedrooms, bathrooms, area_sqft, price, currency, location, view, handover_date, status, is_offplan, highlights, media_urls, project_id, payment_plan_id, projects(name), payment_plans(name)'
+      'id, reference, type, bedrooms, bathrooms, area_sqft, price, currency, location, view, handover_date, status, is_offplan, sale_status, construction_milestones, escrow_account_ref, developer_name, dld_oqood_ref, wafi_ref, designated_foreign_zone, highlights, media_urls, project_id, payment_plan_id, projects(name), payment_plans(name)'
     )
     .eq('client_id', client.id)
     .order('created_at', { ascending: false });
@@ -57,6 +57,9 @@ export async function POST(req: NextRequest) {
   if (!body) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
 
   // Whitelist: never accept client_id/id from the caller — derive from session.
+  // Track B/E additions: sale_status, construction_milestones,
+  // escrow_account_ref, developer_name, dld_oqood_ref (UAE off-plan),
+  // wafi_ref, designated_foreign_zone (KSA).
   const allowed = [
     'project_id',
     'payment_plan_id',
@@ -72,6 +75,13 @@ export async function POST(req: NextRequest) {
     'handover_date',
     'status',
     'is_offplan',
+    'sale_status',
+    'construction_milestones',
+    'escrow_account_ref',
+    'developer_name',
+    'dld_oqood_ref',
+    'wafi_ref',
+    'designated_foreign_zone',
     'highlights',
     'media_urls',
   ] as const;

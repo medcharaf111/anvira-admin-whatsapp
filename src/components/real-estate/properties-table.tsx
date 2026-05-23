@@ -40,6 +40,19 @@ export interface PropertyRow {
   handover_date: string | null;
   status: 'available' | 'reserved' | 'sold' | 'off_market';
   is_offplan: boolean;
+  // Track B/E additions — surfaced for read here so list-view filters
+  // can use sale_status; full edit UI is in the off-plan drawer section.
+  sale_status: 'ready' | 'off_plan' | 'under_construction' | null;
+  construction_milestones: Array<{
+    name: string;
+    target_date?: string;
+    completed?: boolean;
+  }> | null;
+  escrow_account_ref: string | null;
+  developer_name: string | null;
+  dld_oqood_ref: string | null;
+  wafi_ref: string | null;
+  designated_foreign_zone: boolean;
   highlights: string[] | null;
   media_urls: string[] | null;
   project_id: string | null;

@@ -4,6 +4,13 @@ import { redirect } from 'next/navigation';
 export type ClientType = 'clinic' | 'salon' | 'real_estate';
 export type CalendarMode = 'gregorian' | 'hijri' | 'dual';
 /**
+ * Tenant operating country (Track E). Branches compliance UI:
+ *   - UAE → RERA Forms A/B/F/I/U, DLD fields, goAML XML draft.
+ *   - KSA → REGA/SAFIU equivalents, FAL license, Iqama-based KYC.
+ * Null on pre-migration tenants; operator picks during settings review.
+ */
+export type TenantCountry = 'UAE' | 'KSA';
+/**
  * Which WhatsApp transport carries this tenant's traffic.
  *
  * `cloud_api`  — Meta-approved WABA. 1–3 week setup; canonical for
@@ -57,6 +64,12 @@ export interface CurrentClient {
    * stays on the server.
    */
   evolution_instance: string | null;
+  /** Operating country (Track E). Null on pre-migration tenants. */
+  country: TenantCountry | null;
+  /** REGA FAL license — required for KSA brokerages, null elsewhere. */
+  fal_license_number: string | null;
+  /** REGA brokerage company ID — separate from the FAL license. */
+  rega_company_id: string | null;
   /** Evolution server base URL for this tenant. Null pre-provision. */
   evolution_server_url: string | null;
 }
@@ -81,7 +94,7 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
   const wide = await supabase
     .from('dashboard_clients')
     .select(
-      'id, slug, name, owner_id, wa_number, is_sandbox, business_timezone, default_calendar_id, client_type, consent_required, data_region, kyc_enabled, calendar_mode, enabled_languages, transport, evolution_instance, evolution_server_url'
+      'id, slug, name, owner_id, wa_number, is_sandbox, business_timezone, default_calendar_id, client_type, consent_required, data_region, kyc_enabled, calendar_mode, enabled_languages, transport, evolution_instance, evolution_server_url, country, fal_license_number, rega_company_id'
     )
     .eq('owner_id', user.id)
     .order('created_at', { ascending: true })
@@ -132,6 +145,12 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
     transport,
     evolution_instance: (data.evolution_instance ?? null) as string | null,
     evolution_server_url: (data.evolution_server_url ?? null) as string | null,
+    country:
+      data.country === 'UAE' || data.country === 'KSA'
+        ? (data.country as TenantCountry)
+        : null,
+    fal_license_number: (data.fal_license_number ?? null) as string | null,
+    rega_company_id: (data.rega_company_id ?? null) as string | null,
   };
 }
 

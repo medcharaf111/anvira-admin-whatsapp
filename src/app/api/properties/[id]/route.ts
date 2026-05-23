@@ -20,6 +20,14 @@ const ALLOWED = [
   'handover_date',
   'status',
   'is_offplan',
+  // Track B/E additions
+  'sale_status',
+  'construction_milestones',
+  'escrow_account_ref',
+  'developer_name',
+  'dld_oqood_ref',
+  'wafi_ref',
+  'designated_foreign_zone',
   'highlights',
   'media_urls',
 ] as const;

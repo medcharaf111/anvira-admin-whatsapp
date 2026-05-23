@@ -24,7 +24,13 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => null)) as
-    | { consent_required?: boolean; data_region?: string | null }
+    | {
+        consent_required?: boolean;
+        data_region?: string | null;
+        country?: 'UAE' | 'KSA' | null;
+        fal_license_number?: string | null;
+        rega_company_id?: string | null;
+      }
     | null;
   if (!body) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
 
@@ -34,6 +40,17 @@ export async function PATCH(req: NextRequest) {
   }
   if (body.data_region === null || typeof body.data_region === 'string') {
     updates.data_region = body.data_region;
+  }
+  // Track E — operating country + REGA license fields. Country gates
+  // which compliance UI surfaces show; FAL/REGA only relevant for KSA.
+  if (body.country === null || body.country === 'UAE' || body.country === 'KSA') {
+    updates.country = body.country;
+  }
+  if (body.fal_license_number === null || typeof body.fal_license_number === 'string') {
+    updates.fal_license_number = body.fal_license_number;
+  }
+  if (body.rega_company_id === null || typeof body.rega_company_id === 'string') {
+    updates.rega_company_id = body.rega_company_id;
   }
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'no_fields' }, { status: 400 });

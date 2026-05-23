@@ -7,6 +7,7 @@ import { BranchNumbersPanel } from '@/components/real-estate/branch-numbers-pane
 import { ReplyLanguagesSection } from '@/components/real-estate/reply-languages-section';
 import { CalendarModeSection } from '@/components/real-estate/calendar-mode-section';
 import { WhatsAppTransportPanel } from '@/components/real-estate/whatsapp-transport-panel';
+import { TenantCountryPanel } from '@/components/real-estate/tenant-country-panel';
 import { PageHeader } from '@/components/page-header';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +45,13 @@ export default async function SettingsPage() {
               initial={{
                 consent_required: client.consent_required,
                 data_region: client.data_region,
+              }}
+            />
+            <TenantCountryPanel
+              initial={{
+                country: client.country,
+                fal_license_number: client.fal_license_number,
+                rega_company_id: client.rega_company_id,
               }}
             />
           </div>
