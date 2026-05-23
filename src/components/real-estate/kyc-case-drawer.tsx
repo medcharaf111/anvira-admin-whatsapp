@@ -577,11 +577,19 @@ export function KycCaseDrawer({
                       );
                     })()}
                   </div>
+                  {/* goAML draft disclaimer (per addendum). The exported
+                      XML is a draft the broker reviews + manually
+                      submits — Anvira never submits to FIU directly. */}
                   <p
                     className="mt-2 text-[10px] leading-relaxed"
                     style={{ color: 'var(--ink-faint)' }}
+                    dir="rtl"
                   >
-                    تقرير غير موقّع — التوقيع الرقمي يتم عبر بوابة goAML بعد التحميل.
+                    هذا الملف <strong>مسوّدة للمراجعة</strong> تُرفع يدوياً إلى بوابة
+                    goAML الخاصة بوحدة المعلومات المالية الإماراتية. Anvira لا
+                    تُقدّم التقارير إلى الجهات التنظيمية. المكتب مسؤول عن
+                    مراجعة الملف وتصحيحه وإيداعه ضمن المهل التنظيمية. التوقيع
+                    الرقمي يتمّ داخل بوابة goAML بعد التحميل.
                   </p>
 
                   <div className="mt-3 grid grid-cols-2 gap-2">

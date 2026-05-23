@@ -400,6 +400,20 @@ function TestResultPill({ result }: { result: TestResult }) {
             {result.notes}
           </p>
         )}
+        {/* Screening-result disclaimer (per addendum). The integrated
+            datasets are first-pass open-public — the broker still owes
+            enhanced due diligence on positive matches. Inlined here so
+            it sits next to every result, not buried in a help page. */}
+        <p
+          className="text-[10px] mt-2 leading-relaxed"
+          style={{ color: 'var(--ink-faint)' }}
+          dir="rtl"
+        >
+          النتائج مبنية على مجموعات بيانات عامة (OFAC SDN, UN Consolidated,
+          EU, UK HMT, OpenSanctions PEP). هذه أداة فحص أوّلي. على المكتب
+          إجراء العناية الواجبة المعزّزة على أي تطابق إيجابي، والقرار
+          النهائي للمخاطر يبقى على عاتقه.
+        </p>
       </div>
     </div>
   );

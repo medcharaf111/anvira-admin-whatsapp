@@ -339,6 +339,13 @@ export function KycPage({
 
   return (
     <div>
+      {/* PDPL/AML positioning disclaimer (per addendum). Anvira is a
+          software vendor providing workflow tools; the broker remains
+          the regulated party. Banner must appear above all KYC surfaces
+          so the operator is reminded on every visit, not just on
+          first-touch onboarding. */}
+      <ComplianceDisclaimerBanner />
+
       {/* Sanctions provider status — server-controlled, read-only chip
           + ad-hoc test. Sits above the stats grid so the operator can
           see "what engine is screening my cases" at a glance. */}
@@ -723,6 +730,60 @@ function NotProvisionedState({ title, body }: { title: string; body: string }) {
       <p className="text-sm leading-relaxed" style={{ color: 'var(--ink-soft)' }}>
         {body}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Workflow-assistance positioning disclaimer (per addendum). Anvira is
+ * software, not a regulated entity — UAE Federal Decree-Law 10/2025
+ * obligations land on the broker, not on us. Banner re-asserts this
+ * every visit so the operator never forgets where the line is.
+ *
+ * Editorial style matches the existing alert chips: dashed border,
+ * paper-sink background, no glassmorphism, no emoji.
+ */
+function ComplianceDisclaimerBanner() {
+  return (
+    <div
+      className="mb-6 p-4"
+      style={{
+        background: 'var(--paper-sink)',
+        border: '1px dashed var(--rule)',
+        borderRadius: '3px',
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <Info
+          className="w-4 h-4 mt-0.5 shrink-0"
+          style={{ color: 'var(--ink-faint)' }}
+        />
+        <div className="flex-1 space-y-2">
+          <p
+            className="text-[12px] leading-relaxed"
+            style={{ color: 'var(--ink-soft)' }}
+            dir="rtl"
+          >
+            توفّر Anvira أدوات سير عمل لتوثيق متطلبات الامتثال ومكافحة غسل
+            الأموال. يبقى المكتب العقاري هو المسؤول عن الالتزامات التنظيمية
+            بموجب المرسوم الاتحادي الإماراتي رقم ١٠ لسنة ٢٠٢٥، بما في ذلك
+            تقديم تقارير STR / REAR عبر بوابة goAML. لا تقوم Anvira بتقديم
+            التقارير إلى الجهات التنظيمية نيابةً عنك، ولا تضمن قبول
+            المستندات المولَّدة من قِبل تلك الجهات.
+          </p>
+          <p
+            className="text-[10px] leading-relaxed"
+            style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}
+          >
+            Anvira provides workflow assistance for AML/KYC documentation.
+            Brokers remain responsible for compliance obligations under UAE
+            Federal Decree-Law No. 10 of 2025, including STR/REAR filings
+            via the goAML portal. Anvira does not submit reports to
+            regulators on your behalf and does not guarantee regulatory
+            acceptance of generated documents.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
