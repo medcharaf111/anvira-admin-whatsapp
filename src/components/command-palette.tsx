@@ -70,7 +70,7 @@ function buildEntries(clientType: ClientType, isOperator: boolean): Entry[] {
     { id: 'payment-plans', type: 'page', label: 'خطط السداد', labelLat: 'Payment Plans', group: 'CATALOG', href: '/payment-plans', icon: DollarSign, onlyFor: ['real_estate'] },
 
     // Compliance
-    { id: 'kyc', type: 'page', label: 'الامتثال (KYC)', labelLat: 'KYC', group: 'COMPLIANCE', href: '/kyc', icon: Shield, onlyFor: ['real_estate'] },
+    { id: 'kyc', type: 'page', label: 'الامتثال و AML', labelLat: 'Compliance & AML', group: 'COMPLIANCE', href: '/kyc', icon: Shield, onlyFor: ['real_estate'] },
     { id: 'forms', type: 'page', label: 'النماذج', labelLat: 'RERA Forms', group: 'COMPLIANCE', href: '/forms', icon: FileText, onlyFor: ['real_estate'] },
     { id: 'audit', type: 'page', label: 'سجل النشاط', labelLat: 'Audit', group: 'COMPLIANCE', href: '/audit', icon: ScrollText },
 

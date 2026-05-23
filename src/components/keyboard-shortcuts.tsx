@@ -36,7 +36,7 @@ const SHORTCUT_TABLE: Array<{
   { keys: ['G', 'L'], description: 'العملاء المحتملين', descriptionLat: 'Leads (RE)' },
   { keys: ['G', 'V'], description: 'المعاينات', descriptionLat: 'Viewings (RE)' },
   { keys: ['G', 'P'], description: 'العقارات', descriptionLat: 'Properties (RE)' },
-  { keys: ['G', 'K'], description: 'الامتثال (KYC)', descriptionLat: 'KYC (RE)' },
+  { keys: ['G', 'K'], description: 'الامتثال و AML', descriptionLat: 'Compliance & AML (RE)' },
   { keys: ['G', 'S'], description: 'الإعدادات', descriptionLat: 'Settings' },
   { keys: ['G', 'N'], description: 'قاعدة المعرفة', descriptionLat: 'Knowledge Base' },
   { keys: ['N'], description: 'جديد (سياقي)', descriptionLat: 'New (contextual)' },

@@ -108,7 +108,11 @@ const COMPLIANCE_BASE: NavGroup = {
 
 const KYC_ITEM: NavItem = {
   href: '/kyc',
-  label: 'الامتثال (KYC)',
+  // Track D — repositioned per regulatory anchor [[anvira-uae-decree-10-2025]].
+  // The module covers both KYC (identity) and AML (sanctions/PEP screening,
+  // source of funds), so the broader label is honest. The route stays /kyc
+  // to keep deep links + bookmarks working.
+  label: 'الامتثال و AML',
   icon: Shield,
   onlyFor: ['real_estate'],
 };

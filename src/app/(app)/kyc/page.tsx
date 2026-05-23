@@ -26,8 +26,8 @@ export default async function KycPageRoute() {
     <div>
       <PageHeader
         eyebrow="08 / الامتثال"
-        title="سير عمل KYC للوسطاء العقاريين"
-        subtitle="جمع وثائق التحقّق من العميل، فحص قوائم العقوبات، وتوليد تقارير DNFBP الجاهزة للإيداع."
+        title="الامتثال و AML — للوسطاء العقاريين"
+        subtitle="جمع وثائق CDD، فحص قوائم العقوبات (UN/OFAC/EU/HMT/Interpol عبر OpenSanctions)، وتوليد مسوّدات goAML — متوافقة مع المرسوم الفيدرالي UAE 10/2025. التقديم النهائي لبوابة الإمارات للمعلومات المالية يتمّ يدوياً."
       />
       <KycPage
         kycEnabled={client.kyc_enabled}
