@@ -204,6 +204,8 @@ export function KycCaseDrawer({
         | 'is_entity'
         | 'beneficial_owner_name'
         | 'intended_use'
+        | 'expected_purchase_amount'
+        | 'expected_purchase_currency'
       >
     >,
     silent = false
@@ -420,12 +422,7 @@ export function KycCaseDrawer({
                       ar="مصدر الأموال"
                       value={detail.source_of_funds ?? '—'}
                     />
-                    <Row
-                      label="Expected amount"
-                      ar="المبلغ المتوقّع"
-                      value={fmtAed(detail.expected_purchase_amount, detail.expected_purchase_currency)}
-                      mono
-                    />
+                    <ExpectedAmountRow detail={detail} patchCase={patchCase} />
                   </div>
                 </section>
 
@@ -681,6 +678,196 @@ function SectionHead({ label }: { label: string }) {
   );
 }
 
+/**
+ * Inline-editable Expected amount row. The KYC case's
+ * expected_purchase_amount is the declared transaction value for the
+ * filing — distinct from the lead's drifting "current budget intent"
+ * on leads_qualification. Operator owns updates here so the
+ * audit_log row that ships with the AML/CFT filing carries an
+ * explicit, attributable change. Edits save on Save click (not on
+ * blur) because the operator typing typically reaches digits before
+ * settling on the right value, and we don't want to spam the audit
+ * log with every keystroke.
+ */
+function ExpectedAmountRow({
+  detail,
+  patchCase,
+}: {
+  detail: KycCaseDetail;
+  patchCase: (body: CddPatchFields, silent?: boolean) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState<string>(
+    detail.expected_purchase_amount != null
+      ? String(detail.expected_purchase_amount)
+      : ''
+  );
+  const [currency, setCurrency] = useState<string>(
+    detail.expected_purchase_currency ?? 'AED'
+  );
+  const [saving, setSaving] = useState(false);
+
+  // Re-sync when the upstream detail changes (e.g. realtime refresh).
+  useEffect(() => {
+    if (editing) return;
+    setAmount(
+      detail.expected_purchase_amount != null
+        ? String(detail.expected_purchase_amount)
+        : ''
+    );
+    setCurrency(detail.expected_purchase_currency ?? 'AED');
+  }, [
+    detail.expected_purchase_amount,
+    detail.expected_purchase_currency,
+    editing,
+  ]);
+
+  async function save() {
+    const parsed = amount.trim() === '' ? null : Number(amount.replace(/[,\s]/g, ''));
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < 0)) {
+      toast.error('قيمة غير صحيحة');
+      return;
+    }
+    const cleanCurrency = currency.trim().toUpperCase() || 'AED';
+    const unchanged =
+      parsed === (detail.expected_purchase_amount ?? null) &&
+      cleanCurrency === (detail.expected_purchase_currency ?? 'AED');
+    if (unchanged) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    await patchCase({
+      expected_purchase_amount: parsed,
+      expected_purchase_currency: cleanCurrency,
+    });
+    setSaving(false);
+    setEditing(false);
+  }
+
+  function cancel() {
+    setAmount(
+      detail.expected_purchase_amount != null
+        ? String(detail.expected_purchase_amount)
+        : ''
+    );
+    setCurrency(detail.expected_purchase_currency ?? 'AED');
+    setEditing(false);
+  }
+
+  return (
+    <div className="p-3 flex items-start gap-3">
+      <div className="w-28 shrink-0">
+        <div
+          className="text-[10px] tracking-widest uppercase"
+          style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-faint)' }}
+        >
+          Expected amount
+        </div>
+        <div className="text-[11px] mt-0.5" style={{ color: 'var(--ink-faint)' }}>
+          المبلغ المتوقّع
+        </div>
+      </div>
+      <div className="flex-1 min-w-0">
+        {editing ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              disabled={saving}
+              className="h-9 px-2 text-sm outline-none"
+              style={{
+                background: 'var(--paper)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                color: 'var(--ink)',
+                fontFamily: 'var(--font-mono)',
+                minWidth: 70,
+              }}
+            >
+              <option value="AED">AED</option>
+              <option value="USD">USD</option>
+              <option value="SAR">SAR</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+            </select>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={saving}
+              placeholder="1500000"
+              dir="ltr"
+              className="flex-1 min-w-[100px] h-9 px-2 text-sm tabular text-left outline-none"
+              style={{
+                background: 'var(--paper)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                color: 'var(--ink)',
+                fontFamily: 'var(--font-mono)',
+              }}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="h-9 px-3 text-[12px] disabled:opacity-50"
+              style={{
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                borderRadius: '3px',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              {saving ? '...' : 'SAVE'}
+            </button>
+            <button
+              type="button"
+              onClick={cancel}
+              disabled={saving}
+              className="h-9 px-3 text-[12px] disabled:opacity-50"
+              style={{
+                background: 'var(--paper-sink)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                fontFamily: 'var(--font-mono)',
+                color: 'var(--ink-soft)',
+              }}
+            >
+              CANCEL
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-sm text-left w-full hover:opacity-80 transition-opacity"
+            style={{
+              color: 'var(--ink)',
+              fontFamily: 'var(--font-mono)',
+              cursor: 'pointer',
+            }}
+            title="انقر للتعديل"
+          >
+            {fmtAed(
+              detail.expected_purchase_amount,
+              detail.expected_purchase_currency
+            )}
+            <span
+              className="text-[10px] mr-2"
+              style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}
+            >
+              ✎
+            </span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Row({
   label,
   ar,
@@ -735,24 +922,25 @@ function Row({
  * "Missing CDD fields" warning at the top lists what's still required
  * so the operator knows what's blocking status promotion.
  */
+type CddPatchFields = Partial<
+  Pick<
+    KycCaseDetail,
+    | 'date_of_birth'
+    | 'funding_source_type'
+    | 'is_entity'
+    | 'beneficial_owner_name'
+    | 'intended_use'
+    | 'expected_purchase_amount'
+    | 'expected_purchase_currency'
+  >
+>;
+
 function CddEditor({
   detail,
   patchCase,
 }: {
   detail: KycCaseDetail;
-  patchCase: (
-    body: Partial<
-      Pick<
-        KycCaseDetail,
-        | 'date_of_birth'
-        | 'funding_source_type'
-        | 'is_entity'
-        | 'beneficial_owner_name'
-        | 'intended_use'
-      >
-    >,
-    silent?: boolean
-  ) => Promise<void>;
+  patchCase: (body: CddPatchFields, silent?: boolean) => Promise<void>;
 }) {
   const [dob, setDob] = useState(detail.date_of_birth ?? '');
   const [funding, setFunding] = useState<FundingSourceType | ''>(
