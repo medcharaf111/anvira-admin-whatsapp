@@ -26,6 +26,20 @@ export interface KycCaseDetail {
   source_of_funds: string | null;
   expected_purchase_amount: number | null;
   expected_purchase_currency: string | null;
+  /**
+   * Latest buyer-stated budget from the linked conversation's
+   * leads_qualification.budget_max (+ currency). The bot extracts this
+   * structurally from every inbound message; we surface it here so the
+   * drawer can render a "suggested update" nudge when it diverges
+   * from the operator-owned expected_purchase_amount. Null when the
+   * case has no conversation, no joined qualification row, or no
+   * budget extraction yet.
+   */
+  latest_buyer_budget: {
+    amount: number | null;
+    currency: string | null;
+    last_extracted_at: string | null;
+  } | null;
   status: KycStatus;
   notes: string | null;
   // Track D CDD fields. All optional on the wire; the backend's
@@ -755,6 +769,32 @@ function ExpectedAmountRow({
     setEditing(false);
   }
 
+  // Compute whether the buyer's latest WhatsApp-stated budget diverges
+  // from the operator-set expected_purchase_amount. We don't auto-sync —
+  // operator review is required for regulator-facing accuracy — but
+  // surface a one-click "apply" nudge so the operator doesn't have to
+  // open the conversation just to copy the number across.
+  const lbb = detail.latest_buyer_budget;
+  const lbbAmount = lbb?.amount ?? null;
+  const lbbCurrency = (lbb?.currency ?? '').toUpperCase() || null;
+  const curAmount = detail.expected_purchase_amount ?? null;
+  const curCurrency = (detail.expected_purchase_currency ?? 'AED').toUpperCase();
+  const hasSuggestion =
+    !editing &&
+    lbbAmount !== null &&
+    lbbCurrency !== null &&
+    (lbbAmount !== curAmount || lbbCurrency !== curCurrency);
+
+  async function applySuggestion() {
+    if (!hasSuggestion || lbbAmount === null || lbbCurrency === null) return;
+    setSaving(true);
+    await patchCase({
+      expected_purchase_amount: lbbAmount,
+      expected_purchase_currency: lbbCurrency,
+    });
+    setSaving(false);
+  }
+
   return (
     <div className="p-3 flex items-start gap-3">
       <div className="w-28 shrink-0">
@@ -840,28 +880,71 @@ function ExpectedAmountRow({
             </button>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-sm text-left w-full hover:opacity-80 transition-opacity"
-            style={{
-              color: 'var(--ink)',
-              fontFamily: 'var(--font-mono)',
-              cursor: 'pointer',
-            }}
-            title="انقر للتعديل"
-          >
-            {fmtAed(
-              detail.expected_purchase_amount,
-              detail.expected_purchase_currency
-            )}
-            <span
-              className="text-[10px] mr-2"
-              style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="text-sm text-left w-full hover:opacity-80 transition-opacity"
+              style={{
+                color: 'var(--ink)',
+                fontFamily: 'var(--font-mono)',
+                cursor: 'pointer',
+              }}
+              title="انقر للتعديل"
             >
-              ✎
-            </span>
-          </button>
+              {fmtAed(
+                detail.expected_purchase_amount,
+                detail.expected_purchase_currency
+              )}
+              <span
+                className="text-[10px] mr-2"
+                style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)' }}
+              >
+                ✎
+              </span>
+            </button>
+            {hasSuggestion && (
+              <div
+                className="text-[11px] px-2.5 py-1.5 flex items-center gap-2 flex-wrap"
+                style={{
+                  background:
+                    'color-mix(in srgb, var(--primary-glow) 10%, var(--paper-sink))',
+                  border:
+                    '1px solid color-mix(in srgb, var(--primary-glow) 35%, var(--rule))',
+                  borderRadius: '3px',
+                  color: 'var(--ink-soft)',
+                }}
+                dir="rtl"
+              >
+                <span>
+                  العميل ذكر{' '}
+                  <strong
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--ink)',
+                    }}
+                  >
+                    {fmtAed(lbbAmount, lbbCurrency)}
+                  </strong>{' '}
+                  في المحادثة. تطبيق؟
+                </span>
+                <button
+                  type="button"
+                  onClick={applySuggestion}
+                  disabled={saving}
+                  className="h-7 px-2.5 text-[11px] disabled:opacity-50 ms-auto"
+                  style={{
+                    background: 'var(--primary-glow)',
+                    color: 'var(--paper)',
+                    borderRadius: '3px',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  {saving ? '...' : 'APPLY'}
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

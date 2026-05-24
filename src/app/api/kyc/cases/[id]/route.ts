@@ -64,6 +64,26 @@ export async function GET(
     const required: string[] = ['passport', 'bank_statement'];
     if (amount >= 1_000_000) required.push('source_of_funds');
 
+    // Pass through the backend's latest_buyer_budget snapshot. The
+    // drawer compares it against expected_purchase_amount and renders
+    // a "buyer mentioned X in conversation — apply?" nudge when they
+    // diverge. Null when there's no linked conversation, no joined
+    // leads_qualification row, or no extracted budget yet.
+    const lbb =
+      raw.latest_buyer_budget && typeof raw.latest_buyer_budget === 'object'
+        ? (raw.latest_buyer_budget as Record<string, unknown>)
+        : null;
+    const latest_buyer_budget = lbb
+      ? {
+          amount: typeof lbb.amount === 'number' ? lbb.amount : null,
+          currency: typeof lbb.currency === 'string' ? lbb.currency : null,
+          last_extracted_at:
+            typeof lbb.last_extracted_at === 'string'
+              ? lbb.last_extracted_at
+              : null,
+        }
+      : null;
+
     const flat = {
       id: c.id,
       customer_name: c.customer_name ?? null,
@@ -73,6 +93,7 @@ export async function GET(
       source_of_funds: c.source_of_funds ?? null,
       expected_purchase_amount: c.expected_purchase_amount ?? null,
       expected_purchase_currency: c.expected_purchase_currency ?? null,
+      latest_buyer_budget,
       status: c.status,
       notes: c.notes ?? null,
       // Track D additions — exposed to the drawer so the CDD section
