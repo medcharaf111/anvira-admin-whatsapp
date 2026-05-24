@@ -100,7 +100,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'slug_taken' }, { status: 409 });
   }
 
-  // Create the client (no Twilio number until they upgrade to Pro).
+  // Create the client. Anvira is a real-estate-brokerage-only product
+  // post-pivot ([[anvira-realestate-pivot]] 2026-05-19) — every new
+  // tenant gets client_type='real_estate' so the RE catalog, KYC/AML,
+  // RERA forms, and recovery nav items are visible from day one. The
+  // legacy 'clinic' / 'salon' enum values stay for historical rows but
+  // are not exposed to fresh signups.
   // regulatory_jurisdiction stored so the compliance module knows
   // which framework (UAE Federal PDPL vs KSA PDPL) to apply.
   const { data: client, error: cErr } = await svc
@@ -111,6 +116,11 @@ export async function POST(req: Request) {
       owner_id: user.id,
       is_sandbox: false,
       business_timezone: body.timezone || 'Asia/Riyadh',
+      client_type: 'real_estate',
+      // PDPL Art. 25 — explicit consent is required for buyer-facing
+      // outbound. Default true for brokerages so the bot enforces the
+      // consent flow on first contact instead of treating it as opt-in.
+      consent_required: true,
       regulatory_jurisdiction: jurisdiction,
     })
     .select('id')
