@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
@@ -178,6 +179,23 @@ export default function LoginPage() {
               {resetSent ? 'تم الإرسال — تحقق من بريدك' : 'نسيت كلمة المرور؟'}
             </button>
           </form>
+
+          <div
+            className="mt-6 pt-6 text-center text-xs"
+            style={{
+              borderTop: '1px solid var(--rule)',
+              color: 'var(--ink-faint)',
+            }}
+          >
+            ليس لديك حساب؟{' '}
+            <Link
+              href="/signup"
+              className="link-anim"
+              style={{ color: 'var(--primary-glow)' }}
+            >
+              أنشئ حساباً جديداً
+            </Link>
+          </div>
         </div>
 
         <p
