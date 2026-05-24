@@ -1291,11 +1291,34 @@ function BrochurePicker({
           ),
         }
       );
-      if (!res.ok) throw new Error('fail');
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        detail?: string;
+        reason?: string;
+        sent?: number;
+      };
+      // Backend returns ok:false with reason='no_media_attached' when the
+      // property exists but has no media_urls. Surface that distinctly so
+      // the operator knows to add a brochure to the property record.
+      if (!res.ok || j.ok === false) {
+        const friendly =
+          j.error === 'no_media_attached' || j.reason === 'no_media_attached'
+            ? 'لا يوجد brochure مرفق بهذا العقار. أضف وسائط من شاشة العقار أولاً.'
+            : j.error === 'property_not_found'
+              ? 'لم يتم العثور على العقار.'
+              : j.error === 'project_not_found'
+                ? 'لم يتم العثور على المشروع.'
+                : j.error === 'send_failed'
+                  ? `فشل الإرسال عبر واتساب${j.detail ? `: ${j.detail}` : ''}`
+                  : `لم نتمكن من الإرسال (${j.error ?? `http_${res.status}`}${j.detail ? `: ${j.detail}` : ''})`;
+        toast.error(friendly);
+        return;
+      }
       toast.success('تم إرسال الـ brochure');
       onDone();
-    } catch {
-      toast.error('لم نتمكن من الإرسال');
+    } catch (err: any) {
+      toast.error(`فشل الاتصال: ${err?.message ?? 'unknown'}`);
     } finally {
       setSending(null);
     }

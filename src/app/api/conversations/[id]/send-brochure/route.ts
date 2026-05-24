@@ -65,44 +65,44 @@ export async function POST(
   }
 
   // The backend exposes an internal endpoint guarded by the shared
-  // secret. We expect a JSON response { ok: boolean, error?: string }.
-  let backendOk = true;
-  let backendError: string | undefined;
+  // secret. Response shape: { ok: boolean, error?: string, reason?: string, detail?: string }.
+  // We forward the full JSON (and the backend's status) so the UI can
+  // render specific guidance for cases like no_media_attached, instead
+  // of a generic "couldn't send" toast.
+  let backendStatus = 502;
+  let backendJson: Record<string, unknown> | null = null;
+  let backendOk = false;
   try {
     const res = await fetch(`${backend}/internal/conversations/send-brochure`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Internal-Secret': process.env.INTERNAL_SHARED_SECRET ?? '',
+        'X-Client-Id': client.id,
       },
       body: JSON.stringify({
-        client_id: client.id,
         conversation_id: id,
         property_id: body.property_id,
         project_id: body.project_id,
       }),
     });
-    if (!res.ok) {
-      backendOk = false;
-      backendError = `http_${res.status}`;
-    } else {
-      const j = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: string }
-        | null;
-      if (j && j.ok === false) {
-        backendOk = false;
-        backendError = j.error;
-      }
-    }
+    backendStatus = res.status;
+    backendJson = (await res.json().catch(() => null)) as
+      | Record<string, unknown>
+      | null;
+    backendOk = res.ok && backendJson?.ok !== false;
   } catch (err) {
-    backendOk = false;
-    backendError = (err as Error).message;
+    backendJson = { error: 'backend_unreachable', detail: (err as Error).message };
   }
 
   if (!backendOk) {
     return NextResponse.json(
-      { error: backendError ?? 'backend_failure' },
-      { status: 502 }
+      backendJson ?? { error: 'backend_failure' },
+      // Mirror backend status when it gave one; fall back to 502 on
+      // network errors. 200-with-ok:false (no_media_attached) becomes
+      // 422 so the client treats it as a recoverable validation failure
+      // rather than a generic server error.
+      { status: backendStatus === 200 ? 422 : backendStatus }
     );
   }
 
