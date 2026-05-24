@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -175,29 +176,82 @@ export function LeadDrawer({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  // Fetch the conversation tail (last 10 messages) + full qualification
-  // whenever a lead is opened.
+  // Fetch the conversation tail (last 10 messages) + full qualification.
+  // Called on initial open AND whenever realtime says the underlying
+  // leads_qualification / messages rows changed (so a bot-driven budget
+  // update propagates without the operator closing and reopening the
+  // drawer).
+  const refetchDetail = useCallback(
+    (signal?: AbortSignal) => {
+      if (!lead) return;
+      setTailLoading(true);
+      setQualifyLoading(true);
+      fetch(`/api/leads/${lead.id}/detail`, { signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!j) return;
+          setTail(j.messages ?? []);
+          setQualify(j.qualification ?? null);
+        })
+        .catch(() => {
+          /* aborted or network — keep whatever was rendered */
+        })
+        .finally(() => {
+          setTailLoading(false);
+          setQualifyLoading(false);
+        });
+    },
+    [lead?.id] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   useEffect(() => {
     if (!lead || !open) return;
     const ctrl = new AbortController();
-    setTailLoading(true);
-    setQualifyLoading(true);
-    fetch(`/api/leads/${lead.id}/detail`, { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (!j) return;
-        setTail(j.messages ?? []);
-        setQualify(j.qualification ?? null);
-      })
-      .catch(() => {
-        /* aborted or network — show empty */
-      })
-      .finally(() => {
-        setTailLoading(false);
-        setQualifyLoading(false);
-      });
+    refetchDetail(ctrl.signal);
     return () => ctrl.abort();
-  }, [lead?.id, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lead?.id, open, refetchDetail]);
+
+  // Realtime: when the bot extracts a new budget / bedrooms / etc.,
+  // leads_qualification.UPDATE fires. Same for new messages on the
+  // conversation. Coalesce bursts with a 300ms debounce so we don't
+  // hammer the detail endpoint when the bot sends a reply + records
+  // qualification in the same orchestrator tick.
+  useEffect(() => {
+    if (!lead || !open) return;
+    const supabase = createClient();
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+    const refetchSoon = () => {
+      if (pendingTimer) clearTimeout(pendingTimer);
+      pendingTimer = setTimeout(() => refetchDetail(), 300);
+    };
+    const ch = supabase
+      .channel(`lead-drawer:${lead.id}`)
+      .on(
+        'postgres_changes' as never,
+        {
+          event: '*',
+          schema: 'public',
+          table: 'leads_qualification',
+          filter: `conversation_id=eq.${lead.id}`,
+        },
+        refetchSoon
+      )
+      .on(
+        'postgres_changes' as never,
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${lead.id}`,
+        },
+        refetchSoon
+      )
+      .subscribe();
+    return () => {
+      if (pendingTimer) clearTimeout(pendingTimer);
+      supabase.removeChannel(ch);
+    };
+  }, [lead?.id, open, refetchDetail]);
 
   const score = lead?.lead_score ?? 0;
 
