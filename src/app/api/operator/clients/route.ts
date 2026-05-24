@@ -60,7 +60,11 @@ export async function POST(req: Request) {
   }
   const userId = created.user.id;
 
-  // Insert the client row owned by the new user
+  // Insert the client row owned by the new user. Anvira is real-estate-
+  // brokerage-only post-pivot ([[anvira-realestate-pivot]] 2026-05-19),
+  // so every tenant — even founder-provisioned ones — must default to
+  // client_type='real_estate' + consent_required=true. Without these,
+  // the RE sidebar items hide and the bot skips the PDPL consent flow.
   const { data: client, error: cErr } = await svc
     .from('dashboard_clients')
     .insert({
@@ -69,6 +73,8 @@ export async function POST(req: Request) {
       owner_id: userId,
       is_sandbox: false,
       business_timezone: body.timezone,
+      client_type: 'real_estate',
+      consent_required: true,
       plan: body.plan,
       subscription_status: 'trial',
     })
@@ -83,8 +89,10 @@ export async function POST(req: Request) {
     );
   }
 
-  // Seed empty KB and default settings rows
-  const [{ error: kbErr }, { error: stErr }] = await Promise.all([
+  // Seed empty KB, default settings, and the owner's tenant_members row
+  // so the new tenant is fully usable on first login (mirrors what
+  // /api/onboarding does for self-serve signups).
+  const [{ error: kbErr }, { error: stErr }, { error: tmErr }] = await Promise.all([
     svc.from('knowledge_base').insert({
       client_id: client.id,
       business_name: body.business_name,
@@ -105,6 +113,14 @@ export async function POST(req: Request) {
       out_of_office: false,
       default_appointment_min: 30,
     }),
+    svc.from('tenant_members').insert({
+      client_id: client.id,
+      user_id: userId,
+      role: 'owner',
+      invited_by: userId,
+      accepted_at: new Date().toISOString(),
+      status: 'accepted',
+    }),
   ]);
   if (kbErr || stErr) {
     return NextResponse.json(
@@ -114,6 +130,14 @@ export async function POST(req: Request) {
         clientId: client.id,
       },
       { status: 500 }
+    );
+  }
+  // tenant_members failure is non-fatal — user_can_access_client() has
+  // an owner_id fallback. Log so an operator can backfill if needed.
+  if (tmErr) {
+    console.warn(
+      '[operator/clients] tenant_members seed failed (non-fatal):',
+      tmErr.message
     );
   }
 
