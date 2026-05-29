@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -31,7 +32,6 @@ interface StateResponse {
 interface EvolutionInstancePanelProps {
   instance: string;
   onResumeScan: () => void;
-  onReplaceNumber?: () => void;
   /** Bumped by the parent when re-mounting after a connect. */
   refreshKey?: number;
 }
@@ -142,9 +142,9 @@ function formatLastSeen(iso: string | null | undefined): string {
 export function EvolutionInstancePanel({
   instance,
   onResumeScan,
-  onReplaceNumber,
   refreshKey = 0,
 }: EvolutionInstancePanelProps) {
+  const router = useRouter();
   const [data, setData] = useState<StateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -333,10 +333,10 @@ export function EvolutionInstancePanel({
               <span>Resume scan</span>
             </button>
           )}
-          {state === 'banned' && onReplaceNumber && (
+          {state === 'banned' && (
             <button
               type="button"
-              onClick={onReplaceNumber}
+              onClick={() => router.push('/recovery')}
               className="inline-flex items-center gap-1.5 h-8 px-3 text-[11px] tracking-wider"
               style={{
                 fontFamily: 'var(--font-mono)',

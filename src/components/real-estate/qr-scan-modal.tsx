@@ -9,10 +9,12 @@ import {
   RotateCcw,
   QrCode,
   Smartphone,
+  ShieldAlert,
 } from 'lucide-react';
 
 type Phase =
   | 'idle'
+  | 'ack'
   | 'creating'
   | 'qr_pending'
   | 'connected'
@@ -57,6 +59,9 @@ interface QrScanModalProps {
 const SCAN_BUDGET_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 2_000;
 const SUCCESS_HOLD_MS = 2_000;
+// Item 16 — minimum dwell on the ban-risk disclosure before the operator can
+// proceed. Forces a real read, not a reflexive click-through.
+const ACK_ENABLE_SEC = 20;
 
 /**
  * QR scan modal — the pilot's onboarding heart.
@@ -83,19 +88,30 @@ export function QrScanModal({
   const [remainingMs, setRemainingMs] = useState<number>(SCAN_BUDGET_MS);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Item 16 — ban-risk acknowledgement gate. Before provisioning a fresh
+  // instance the operator must affirm the unofficial-WhatsApp ban-risk
+  // disclosure: read the exact text, tick the checkbox, and wait out a ~20s
+  // enable delay. The server is the real enforcement; this is the UX.
+  const [ackText, setAckText] = useState<{ version: string; text_ar: string } | null>(null);
+  const [ackChecked, setAckChecked] = useState(false);
+  const [ackRemainingSec, setAckRemainingSec] = useState(ACK_ENABLE_SEC);
+
   // Use refs for intervals so we can clean them up reliably across
   // every transition without re-binding on each state change.
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expiryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopAllTimers = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
     if (countdownRef.current) clearInterval(countdownRef.current);
     if (expiryTimeoutRef.current) clearTimeout(expiryTimeoutRef.current);
+    if (ackTimerRef.current) clearInterval(ackTimerRef.current);
     pollRef.current = null;
     countdownRef.current = null;
     expiryTimeoutRef.current = null;
+    ackTimerRef.current = null;
   }, []);
 
   const resetTransient = useCallback(() => {
@@ -104,6 +120,9 @@ export function QrScanModal({
     setQrUrl(null);
     setRemainingMs(SCAN_BUDGET_MS);
     setErrorMsg(null);
+    setAckText(null);
+    setAckChecked(false);
+    setAckRemainingSec(ACK_ENABLE_SEC);
   }, [stopAllTimers]);
 
   // Polling — runs only while `phase === 'qr_pending'`. We pass the
@@ -201,6 +220,60 @@ export function QrScanModal({
     }
   }, [numberId, startPolling]);
 
+  // Item 16 — open the ban-risk acknowledgement screen. Fetches the current
+  // disclosure (version + exact text) and starts the ~20s enable countdown.
+  const startAck = useCallback(async () => {
+    stopAllTimers();
+    setPhase('ack');
+    setAckChecked(false);
+    setAckRemainingSec(ACK_ENABLE_SEC);
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/evolution/ban-risk-ack', { cache: 'no-store' });
+      if (res.ok) {
+        const json = (await res.json()) as { version?: string; text_ar?: string };
+        if (json.version && json.text_ar) {
+          setAckText({ version: json.version, text_ar: json.text_ar });
+        }
+      }
+    } catch {
+      // Leave ackText null — the panel shows a placeholder and the confirm
+      // button stays disabled (we can't affirm a disclosure we couldn't load).
+    }
+    // Tick the enable countdown to 0.
+    ackTimerRef.current = setInterval(() => {
+      setAckRemainingSec((s) => {
+        if (s <= 1) {
+          if (ackTimerRef.current) clearInterval(ackTimerRef.current);
+          ackTimerRef.current = null;
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1_000);
+  }, [stopAllTimers]);
+
+  // Item 16 — record the acknowledgement, then proceed to provisioning.
+  const confirmAck = useCallback(async () => {
+    if (!ackText) return;
+    try {
+      const res = await fetch('/api/evolution/ban-risk-ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number_id: numberId, disclosure_version: ackText.version }),
+      });
+      if (!res.ok) {
+        setErrorMsg(`ack_${res.status}`);
+        setPhase('error');
+        return;
+      }
+      void createInstance(); // proceeds to 'creating' → QR
+    } catch {
+      setErrorMsg('network_error');
+      setPhase('error');
+    }
+  }, [ackText, numberId, createInstance]);
+
   // Open transition — either resume an existing instance (skip
   // provisioning) or create a fresh one.
   useEffect(() => {
@@ -210,6 +283,8 @@ export function QrScanModal({
       return;
     }
     if (resumeInstance) {
+      // Resuming an already-provisioned instance — no new ack required (the
+      // affirmation happened at first provision).
       setInstance(resumeInstance);
       setQrUrl(
         `/api/evolution/instances/${encodeURIComponent(
@@ -219,7 +294,8 @@ export function QrScanModal({
       setPhase('qr_pending');
       startPolling(resumeInstance);
     } else {
-      void createInstance();
+      // Fresh provision — gate behind the ban-risk acknowledgement screen.
+      void startAck();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -362,6 +438,60 @@ export function QrScanModal({
           {/* Body */}
           <div className="px-6 py-6">
             <AnimatePresence mode="wait">
+              {phase === 'ack' && (
+                <motion.div
+                  key="ack"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="py-6 flex flex-col gap-4"
+                  dir="rtl"
+                >
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert
+                      className="w-5 h-5"
+                      style={{ color: 'var(--warn)' }}
+                    />
+                    <h3
+                      className="text-sm font-medium"
+                      style={{ color: 'var(--ink)' }}
+                    >
+                      إقرار مخاطر ربط واتساب غير الرسمي
+                    </h3>
+                  </div>
+                  <p
+                    className="text-[13px] leading-relaxed"
+                    style={{ color: 'var(--ink-soft)' }}
+                  >
+                    {ackText?.text_ar ?? '…'}
+                  </p>
+                  <label
+                    className="flex items-start gap-2 text-[13px]"
+                    style={{ color: 'var(--ink)' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={ackChecked}
+                      onChange={(e) => setAckChecked(e.target.checked)}
+                    />
+                    <span>
+                      أُقرّ بأنني قرأت وفهمت مخاطر حظر الرقم وأتحمّل المسؤولية.
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!ackText || !ackChecked || ackRemainingSec > 0}
+                    onClick={() => void confirmAck()}
+                    className="btn-primary h-10 px-5 disabled:opacity-40"
+                  >
+                    {ackRemainingSec > 0
+                      ? `أتابع خلال ${ackRemainingSec}s`
+                      : 'أتابع إلى ربط الرقم'}
+                  </button>
+                </motion.div>
+              )}
+
               {phase === 'creating' && (
                 <motion.div
                   key="creating"
