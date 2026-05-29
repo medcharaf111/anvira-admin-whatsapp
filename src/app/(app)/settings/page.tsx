@@ -52,6 +52,7 @@ export default async function SettingsPage() {
                 country: client.country,
                 fal_license_number: client.fal_license_number,
                 rega_company_id: client.rega_company_id,
+                emirate: client.emirate,
               }}
             />
           </div>

@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     type?: string;
     input?: Record<string, unknown>;
+    override_reason?: string;
+    transaction_id?: string;
     autofill_audit?: {
       prefilled_field_names?: string[];
       edited_prefilled_field_names?: string[];
@@ -50,7 +52,12 @@ export async function POST(req: NextRequest) {
   const ctx = getInternalContext(client.id);
   const result = await callInternal(ctx, '/internal/rera/forms/generate', {
     method: 'POST',
-    body: JSON.stringify({ type, input: body.input }),
+    body: JSON.stringify({
+      type,
+      input: body.input,
+      override_reason: body.override_reason ?? null,
+      transaction_id: body.transaction_id ?? null,
+    }),
   });
 
   if (!result.provisioned) {

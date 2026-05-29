@@ -49,6 +49,14 @@ interface GenerateResponse {
   url?: string;
   expires_at?: string;
   error?: string;
+  /** Machine warning codes from evaluateTransactionGate. */
+  warnings?: string[];
+  /** Human-readable factual lines surfaced to the operator. */
+  notes?: string[];
+  /** True on 409 — backend refuses without an override_reason. */
+  requires_override?: boolean;
+  /** Set on 422 — hard block, no override possible. */
+  block_reason?: string;
 }
 
 /**
@@ -105,6 +113,20 @@ export function ReraFormDrawer({
   const [prefilledSnapshot, setPrefilledSnapshot] = useState<Record<string, unknown>>(
     {}
   );
+  // Track E — RERA integrity gate. Two stages:
+  //   - gateWarnings/gateNotes: latest backend gate output (warnings codes +
+  //     factual lines). Shown as a banner whenever non-empty.
+  //   - overrideRequired: true after a 409 from the backend. Reveals the
+  //     override-reason textarea + confirm box; Generate stays disabled
+  //     until the operator types a reason AND confirms the second gate.
+  //   - blockReason: 422 hard-block code, e.g. F_DEPOSIT_EXCEEDS_PRICE.
+  //     No override bypasses it — the textarea stays hidden.
+  const [gateWarnings, setGateWarnings] = useState<string[]>([]);
+  const [gateNotes, setGateNotes] = useState<string[]>([]);
+  const [overrideRequired, setOverrideRequired] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [overrideConfirmed, setOverrideConfirmed] = useState(false);
+  const [blockReason, setBlockReason] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -192,7 +214,17 @@ export function ReraFormDrawer({
   // Each new open() resets the review-confirm gate so confirming once
   // doesn't leak across form generations.
   useEffect(() => {
-    if (open) setReviewedConfirmed(false);
+    if (open) {
+      setReviewedConfirmed(false);
+      // RERA gate state — wipe so a prior 409/422 doesn't bleed into the
+      // next drawer session.
+      setGateWarnings([]);
+      setGateNotes([]);
+      setOverrideRequired(false);
+      setOverrideReason('');
+      setOverrideConfirmed(false);
+      setBlockReason(null);
+    }
   }, [open]);
 
   // Close on Escape.
@@ -247,6 +279,17 @@ export function ReraFormDrawer({
       );
       return;
     }
+    // Track E gate — if the backend already asked for an override on a prior
+    // attempt, require both a non-empty reason and the second-stage confirm
+    // box before resubmitting. A hard block (422) cannot be retried at all.
+    if (blockReason) {
+      toast.error('تعذّر التوليد: شرط جوهري مفقود');
+      return;
+    }
+    if (overrideRequired && (!overrideReason.trim() || !overrideConfirmed)) {
+      toast.error('سبب التجاوز مطلوب');
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch('/api/forms/generate', {
@@ -261,6 +304,7 @@ export function ReraFormDrawer({
             _source_lead_id: leadId,
             _source_property_id: propertyId,
           },
+          override_reason: overrideReason.trim() || null,
           // Track F — auto-fill provenance. Backend logs the diff to
           // audit_log so a regulator can verify which values the
           // operator actually reviewed vs which were auto-filled and
@@ -273,6 +317,25 @@ export function ReraFormDrawer({
         }),
       });
       const j = (await res.json().catch(() => ({}))) as GenerateResponse;
+
+      // Track E hard block — 422 gate_blocked. No override possible.
+      if (res.status === 422) {
+        setGateWarnings(Array.isArray(j.warnings) ? j.warnings : []);
+        setGateNotes(Array.isArray(j.notes) ? j.notes : []);
+        setBlockReason(j.block_reason ?? 'gate_blocked');
+        setOverrideRequired(false);
+        toast.error('تعذّر توليد النموذج: شرط جوهري مفقود');
+        return;
+      }
+      // Track E soft block — 409 override_required. Reveal override UI.
+      if (res.status === 409) {
+        setGateWarnings(Array.isArray(j.warnings) ? j.warnings : []);
+        setGateNotes(Array.isArray(j.notes) ? j.notes : []);
+        setOverrideRequired(true);
+        setBlockReason(null);
+        toast.warning('يحتاج النموذج إلى مبرّر متابعة');
+        return;
+      }
       if (!res.ok || !j.url) {
         toast.error(
           j.error === 'forms_backend_not_provisioned'
@@ -281,6 +344,11 @@ export function ReraFormDrawer({
         );
         return;
       }
+      // Success — surface any informational warnings/notes alongside the PDF.
+      setGateWarnings(Array.isArray(j.warnings) ? j.warnings : []);
+      setGateNotes(Array.isArray(j.notes) ? j.notes : []);
+      setOverrideRequired(false);
+      setBlockReason(null);
       setGenerated(j);
       // Open in a new tab + trigger download. We do both because some
       // browsers block programmatic downloads from non-same-origin
@@ -439,6 +507,90 @@ export function ReraFormDrawer({
                 className="px-6 py-4 shrink-0 flex flex-col gap-3"
                 style={{ borderTop: '1px solid var(--rule)' }}
               >
+                {/* Track E — RERA integrity gate output banner. Surfaces
+                    the backend's warnings (codes) + factual notes whenever
+                    the gate flagged anything. A 422 block shows the
+                    block_reason in red; a 409 reveals the override UI. */}
+                {(gateNotes.length > 0 || gateWarnings.length > 0 || blockReason) && (
+                  <div
+                    className="p-3 text-[12px]"
+                    style={{
+                      background: blockReason
+                        ? 'color-mix(in srgb, var(--signal) 10%, var(--paper-lift))'
+                        : 'color-mix(in srgb, var(--warn, #b6852b) 10%, var(--paper-lift))',
+                      border: `1px solid ${blockReason ? 'var(--signal)' : 'var(--warn, #b6852b)'}`,
+                      borderRadius: '3px',
+                      color: 'var(--ink-soft)',
+                    }}
+                  >
+                    {blockReason && (
+                      <p
+                        className="font-medium mb-2"
+                        style={{ color: 'var(--signal)' }}
+                        dir="rtl"
+                      >
+                        تم رفض التوليد: {blockReason}
+                      </p>
+                    )}
+                    {gateNotes.length > 0 && (
+                      <ul className="list-disc pr-4 space-y-1" dir="rtl">
+                        {gateNotes.map((n, i) => (
+                          <li key={i}>{n}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {gateWarnings.length > 0 && (
+                      <p
+                        className="mt-2 text-[10px] tabular"
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--ink-faint)',
+                        }}
+                        dir="ltr"
+                      >
+                        {gateWarnings.join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Track E — override UI shown ONLY after a 409 override_required.
+                    Never shown for 422 hard blocks. Generate stays disabled
+                    until both the reason is typed AND the confirm box ticks. */}
+                {overrideRequired && !blockReason && (
+                  <div className="space-y-2">
+                    <label
+                      className="block text-[12px]"
+                      style={{ color: 'var(--ink-soft)' }}
+                      dir="rtl"
+                    >
+                      سبب التجاوز (Override reason)
+                    </label>
+                    <textarea
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      rows={2}
+                      placeholder="اشرح بإيجاز لماذا تتابع التوليد رغم التحذيرات أعلاه"
+                      className="input-boxed w-full text-sm leading-relaxed"
+                      dir="rtl"
+                    />
+                    <label
+                      className="flex items-start gap-2 text-[12px] cursor-pointer"
+                      style={{ color: 'var(--ink-soft)' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={overrideConfirmed}
+                        onChange={(e) => setOverrideConfirmed(e.target.checked)}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <span dir="rtl">
+                        أؤكّد المتابعة رغم التحذيرات
+                      </span>
+                    </label>
+                  </div>
+                )}
+
                 {/* Track F — review-confirm gate. Generate stays disabled
                     until the operator explicitly ticks the box, even when
                     no fields were auto-filled. PDF generation is a
@@ -494,7 +646,13 @@ export function ReraFormDrawer({
                     <button
                       type="button"
                       onClick={generate}
-                      disabled={submitting || !reviewedConfirmed}
+                      disabled={
+                        submitting ||
+                        !reviewedConfirmed ||
+                        blockReason !== null ||
+                        (overrideRequired &&
+                          (!overrideReason.trim() || !overrideConfirmed))
+                      }
                       className="btn-primary h-10 text-xs gap-1.5 px-4 disabled:opacity-50"
                     >
                       {submitting ? (

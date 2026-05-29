@@ -33,6 +33,7 @@ export async function PATCH(req: NextRequest) {
         country?: 'UAE' | 'KSA' | null;
         fal_license_number?: string | null;
         rega_company_id?: string | null;
+        emirate?: string | null;
       }
     | null;
   if (!body) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
@@ -66,6 +67,20 @@ export async function PATCH(req: NextRequest) {
   // persisted while KSA is unsupported.
   if (body.country === null || body.country === 'UAE') {
     updates.country = body.country;
+  }
+  // Item 22 — UAE emirate. Mirror the migration CHECK constraint values.
+  // Orthogonal to KSA refusal: KSA tenants simply never set this column.
+  const VALID_EMIRATES = new Set([
+    'dubai', 'abu_dhabi', 'sharjah', 'ajman',
+    'umm_al_quwain', 'ras_al_khaimah', 'fujairah',
+  ]);
+  if (body.emirate === null) {
+    updates.emirate = null;
+  } else if (typeof body.emirate === 'string') {
+    if (!VALID_EMIRATES.has(body.emirate)) {
+      return NextResponse.json({ error: 'invalid_emirate' }, { status: 400 });
+    }
+    updates.emirate = body.emirate;
   }
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'no_fields' }, { status: 400 });

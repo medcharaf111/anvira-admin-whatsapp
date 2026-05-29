@@ -11,6 +11,19 @@ export type CalendarMode = 'gregorian' | 'hijri' | 'dual';
  */
 export type TenantCountry = 'UAE' | 'KSA';
 /**
+ * UAE emirate of the brokerage's RERA/regulator registration (item 22).
+ * Null when not yet captured — UI treats null as "EMIRATE NOT VERIFIED" and
+ * never defaults to Dubai. KSA tenants stay null (orthogonal field).
+ */
+export type Emirate =
+  | 'dubai'
+  | 'abu_dhabi'
+  | 'sharjah'
+  | 'ajman'
+  | 'umm_al_quwain'
+  | 'ras_al_khaimah'
+  | 'fujairah';
+/**
  * Which WhatsApp transport carries this tenant's traffic.
  *
  * `cloud_api`  — Meta-approved WABA. 1–3 week setup; canonical for
@@ -82,6 +95,12 @@ export interface CurrentClient {
   fal_license_number: string | null;
   /** REGA brokerage company ID — separate from the FAL license. */
   rega_company_id: string | null;
+  /**
+   * UAE emirate of the brokerage's RERA/regulator registration (item 22).
+   * Null on pre-migration and pre-capture tenants; the RERA forms layer
+   * treats null as EMIRATE_NOT_VERIFIED and NEVER defaults to Dubai/RERA.
+   */
+  emirate: Emirate | null;
   /** Evolution server base URL for this tenant. Null pre-provision. */
   evolution_server_url: string | null;
   /**
@@ -140,7 +159,7 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
   const wideQuery = supabase
     .from('dashboard_clients')
     .select(
-      'id, slug, name, owner_id, wa_number, is_sandbox, business_timezone, default_calendar_id, client_type, consent_required, data_region, kyc_enabled, calendar_mode, enabled_languages, transport, evolution_instance, evolution_server_url, country, fal_license_number, rega_company_id'
+      'id, slug, name, owner_id, wa_number, is_sandbox, business_timezone, default_calendar_id, client_type, consent_required, data_region, kyc_enabled, calendar_mode, enabled_languages, transport, evolution_instance, evolution_server_url, country, fal_license_number, rega_company_id, emirate'
     );
   const wide = await (activeClientId
     ? wideQuery.eq('id', activeClientId).maybeSingle()
@@ -208,6 +227,10 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
         : null,
     fal_license_number: (data.fal_license_number ?? null) as string | null,
     rega_company_id: (data.rega_company_id ?? null) as string | null,
+    emirate:
+      typeof data.emirate === 'string' && data.emirate.length > 0
+        ? (data.emirate as Emirate)
+        : null,
     current_user_role: currentUserRole,
   };
 }
