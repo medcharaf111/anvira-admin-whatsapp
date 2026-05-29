@@ -38,7 +38,31 @@ function prettySource(src: string): string {
   return src.replace(/_/g, ' ').toUpperCase();
 }
 
+// H3b: conversion is grounded in the auditable high-water mark, never the
+// live (human-mutable) lead_stage. A lead that REACHED viewing_booked counts
+// even if it was later moved to 'lost' or re-opened. RANK MUST match
+// crm_stage_rank() in the migration and STAGE_RANK in the admin leads route.
+const RANK: Record<string, number> = {
+  lost: 0, cold: 1, warm: 2, hot: 3, viewing_booked: 4, deposited: 5, closed: 6,
+};
+function reachedRank(c: { lead_stage: string | null; max_stage_reached: string | null }): string {
+  return c.max_stage_reached ?? c.lead_stage ?? 'cold';
+}
+function reachedAtLeast(
+  c: { lead_stage: string | null; max_stage_reached: string | null },
+  stage: string
+): boolean {
+  return (RANK[reachedRank(c)] ?? 0) >= (RANK[stage] ?? 99);
+}
+
 export async function loadReAnalytics(clientId: string): Promise<ReAnalytics> {
+  // H3b — NO invented ROI. There is no broker ad-spend column or input in the
+  // schema/UI, so we render NO cost and NO ROI. The honest behavior is to omit
+  // ROI entirely rather than impute a cost. If a real, broker-supplied spend
+  // column is ever added (e.g. conversations.lead_source -> a source_spend
+  // table), gate any ROI display on `spend != null && spend > 0` and compute
+  // revenue/spend ONLY from those real figures. Do NOT wire analytics.ts
+  // estimatedCostUSD (an imputed LLM/WA operating cost) into this surface.
   const supabase = await createClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
 
@@ -48,7 +72,9 @@ export async function loadReAnalytics(clientId: string): Promise<ReAnalytics> {
     // gets <2k portal leads/month.
     supabase
       .from('conversations')
-      .select('id, created_at, lead_stage, lead_score, lead_source')
+      // H3b: read max_stage_reached (immutable high-water mark) for conversion.
+      // lead_stage stays selected for the live stageCounts board only.
+      .select('id, created_at, lead_stage, lead_score, lead_source, max_stage_reached')
       .eq('client_id', clientId)
       .gte('created_at', since)
       .limit(50_000),
@@ -74,6 +100,7 @@ export async function loadReAnalytics(clientId: string): Promise<ReAnalytics> {
     lead_stage: string | null;
     lead_score: number | null;
     lead_source: string | null;
+    max_stage_reached: string | null;
   }>;
 
   // ── Headline numbers ─────────────────────────────────────────
@@ -94,11 +121,10 @@ export async function loadReAnalytics(clientId: string): Promise<ReAnalytics> {
   }
 
   // Conversion ratios. Clamped so a few stuck stages don't blow them up.
-  const viewings =
-    (stageCounts.viewing_booked ?? 0) +
-    (stageCounts.deposited ?? 0) +
-    (stageCounts.closed ?? 0);
-  const closes = stageCounts.closed ?? 0;
+  // H3b: conversion = count of leads whose HIGH-WATER mark reached the stage,
+  // not who currently sits there. Bot-driven demotion can no longer deflate it.
+  const viewings = convs.filter((c) => reachedAtLeast(c, 'viewing_booked')).length;
+  const closes = convs.filter((c) => reachedAtLeast(c, 'closed')).length;
   const leadToViewing = newLeads === 0 ? 0 : Math.min(1, viewings / newLeads);
   const viewingToClose = viewings === 0 ? 0 : Math.min(1, closes / viewings);
 
@@ -109,14 +135,11 @@ export async function loadReAnalytics(clientId: string): Promise<ReAnalytics> {
   for (const c of convs) {
     const s = (c.lead_source ?? 'unknown').toString();
     srcTotals[s] = (srcTotals[s] ?? 0) + 1;
-    if (
-      c.lead_stage === 'viewing_booked' ||
-      c.lead_stage === 'deposited' ||
-      c.lead_stage === 'closed'
-    ) {
+    // H3b: high-water mark, not live stage.
+    if (reachedAtLeast(c, 'viewing_booked')) {
       srcViewingsByKey[s] = (srcViewingsByKey[s] ?? 0) + 1;
     }
-    if (c.lead_stage === 'closed') {
+    if (reachedAtLeast(c, 'closed')) {
       srcClosesByKey[s] = (srcClosesByKey[s] ?? 0) + 1;
     }
   }
