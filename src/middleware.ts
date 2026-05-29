@@ -23,7 +23,7 @@ export async function middleware(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   const path = req.nextUrl.pathname;
-  // /signup is reachable without auth so brokerage owners can create test
+  // /signup is reachable without auth so brokerage owners can create tst
   // an initial account before going through /onboarding.
   // /invitations/* is reachable without auth — the invitee may not have
   // an Anvira account yet; the page renders SignupInvitationForm to
