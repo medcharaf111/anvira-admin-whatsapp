@@ -21,7 +21,7 @@ export default async function DataRequestsPage() {
   const { data } = await supabase
     .from('data_deletion_requests')
     .select(
-      'id, conversation_id, customer_phone, requested_at, trigger_message, status, confirmed_at, cancelled_at, notes'
+      'id, conversation_id, customer_phone, requested_at, trigger_message, status, confirmed_at, cancelled_at, notes, retained_case_ids, retention_until'
     )
     .eq('client_id', client.id)
     .order('requested_at', { ascending: false })

@@ -19,10 +19,17 @@ interface DataRequest {
   customer_phone: string;
   requested_at: string;
   trigger_message: string | null;
-  status: 'pending' | 'confirmed' | 'auto_confirmed' | 'cancelled';
+  status:
+    | 'pending'
+    | 'confirmed'
+    | 'auto_confirmed'
+    | 'partially_erased'
+    | 'cancelled';
   confirmed_at: string | null;
   cancelled_at: string | null;
   notes: string | null;
+  retained_case_ids: string[] | null;
+  retention_until: string | null;
 }
 
 /**
@@ -41,8 +48,9 @@ export function DataRequestsView({ initial }: { initial: DataRequest[] }) {
     if (
       typeof window !== 'undefined' &&
       !window.confirm(
-        'تأكيد الحذف؟ هذا الإجراء نهائي — سيتم محو محادثة العميل، رسائلها، حالات الامتثال، والوثائق المرتبطة. ' +
-          'يُحفَظ سجل التدقيق فقط (بدون البيانات الشخصية).'
+        'تأكيد المعالجة؟ سيتم محو البيانات الشخصية للعميل نهائياً (المحادثة، الرسائل، التفضيلات). ' +
+          'إذا كانت هناك سجلات امتثال (AML/KYC) خاضعة للاحتفاظ القانوني، فسيتم الاحتفاظ بها لمدة ٥ سنوات ' +
+          'وفق المرسوم بقانون اتحادي رقم ١٠ لسنة ٢٠٢٥، مع محو باقي البيانات. يُحفَظ سجل التدقيق دائماً.'
       )
     ) {
       return;
@@ -116,9 +124,11 @@ export function DataRequestsView({ initial }: { initial: DataRequest[] }) {
             <p style={{ color: 'var(--ink-soft)' }} dir="rtl">
               PDPL يُلزم بالاستجابة لطلبات حذف البيانات خلال ٣٠ يوماً. الطلبات
               التي لا تُؤكَّد يدوياً تُنفَّذ تلقائياً بعد انتهاء المهلة. التأكيد
-              يحذف محادثة العميل + الرسائل + حالات الامتثال + الوثائق المرتبطة
-              نهائياً. سجل التدقيق يحتفظ بحقيقة الحذف فقط (بدون البيانات
-              الشخصية).
+              يمحو البيانات الشخصية للعميل (المحادثة، الرسائل، التفضيلات)
+              نهائياً. <strong>استثناء:</strong> سجلات الامتثال (AML/KYC)
+              ووثائق الهوية الخاضعة للاحتفاظ القانوني تُحفَظ لمدة ٥ سنوات وفق
+              المرسوم بقانون اتحادي رقم ١٠ لسنة ٢٠٢٥ — لا تُحذف، بل تُنقَل إلى
+              تخزين مقيَّد. سجل التدقيق يحتفظ بحقيقة المعالجة دائماً.
             </p>
             <p
               style={{
@@ -126,9 +136,10 @@ export function DataRequestsView({ initial }: { initial: DataRequest[] }) {
                 fontFamily: 'var(--font-mono)',
               }}
             >
-              UAE PDPL Art. 8 / KSA PDPL Art. 10 — 30-day SLA. Confirmed
-              deletion is irreversible; the audit log preserves the event
-              without the deleted PII.
+              UAE PDPL Art. 8 / KSA PDPL Art. 10 — 30-day SLA. PII erasure is
+              irreversible; AML/KYC records under Federal Decree-Law 10/2025
+              are retained 5y under legal hold ("partially erased"), not
+              destroyed. The audit log preserves every event.
             </p>
           </div>
         </div>
@@ -341,6 +352,23 @@ export function DataRequestsView({ initial }: { initial: DataRequest[] }) {
                         ? `نُفِّذ في ${new Date(r.confirmed_at).toLocaleString('ar')}`
                         : `طُلب في ${new Date(r.requested_at).toLocaleString('ar')}`}
                   </div>
+                  {r.status === 'partially_erased' && (
+                    <div
+                      className="text-[10px] mt-1 leading-relaxed"
+                      style={{ color: 'var(--warn, #b6852b)' }}
+                      dir="rtl"
+                    >
+                      {r.retention_until
+                        ? `محو البيانات الشخصية تمّ — سجلات الامتثال (${
+                            r.retained_case_ids?.length ?? 0
+                          }) محتفَظ بها حتى ${new Date(
+                            r.retention_until
+                          ).toLocaleDateString('ar')} وفق المرسوم ١٠/٢٠٢٥`
+                        : `محو البيانات الشخصية تمّ — سجلات الامتثال (${
+                            r.retained_case_ids?.length ?? 0
+                          }) محتفَظ بها حتى رفع الحجز القانوني`}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -356,10 +384,20 @@ function StatusPill({ status }: { status: DataRequest['status'] }) {
     pending: { label: 'معلَّق', color: 'var(--warn, #b6852b)' },
     confirmed: { label: 'مُنفَّذ يدوياً', color: 'var(--signal, #a8262c)' },
     auto_confirmed: { label: 'تنفيذ تلقائي', color: 'var(--signal, #a8262c)' },
+    // Distinct (amber, NOT red) so the operator sees at a glance that AML
+    // records were RETAINED, not destroyed.
+    partially_erased: { label: 'محو جزئي — احتفاظ امتثالي', color: 'var(--warn, #b6852b)' },
     cancelled: { label: 'مُلغى', color: 'var(--ink-faint)' },
   };
   const cfg = config[status];
-  const Icon = status === 'cancelled' ? Ban : status === 'pending' ? Clock : Check;
+  const Icon =
+    status === 'cancelled'
+      ? Ban
+      : status === 'pending'
+      ? Clock
+      : status === 'partially_erased'
+      ? ShieldAlert
+      : Check;
   return (
     <span
       className="inline-flex items-center gap-1 text-[10px] tracking-widest uppercase px-2 py-0.5"
