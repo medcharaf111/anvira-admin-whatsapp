@@ -101,7 +101,9 @@ export interface KycDocument {
 export interface ScreeningLogEntry {
   id: string;
   ran_at: string;
-  result: 'clean' | 'match' | 'review_needed' | 'error';
+  // 'not_screened' = no sanctions provider configured (fail-closed,
+  // remediation C2). Distinct from 'error' (a retryable upstream failure).
+  result: 'clean' | 'match' | 'review_needed' | 'error' | 'not_screened';
   matched_lists: string[] | null;
   notes: string | null;
 }
@@ -150,6 +152,7 @@ const SCREENING_PILL: Record<ScreeningLogEntry['result'], string> = {
   match: 'pill-signal',
   review_needed: 'pill-warn',
   error: 'pill-idle',
+  not_screened: 'pill-warn',
 };
 
 function fmtAed(amount: number | null, currency: string | null): string {
@@ -1373,6 +1376,8 @@ function ScreeningRow({ entry }: { entry: ScreeningLogEntry }) {
                 ? 'تطابق'
                 : entry.result === 'review_needed'
                 ? 'يحتاج مراجعة'
+                : entry.result === 'not_screened'
+                ? 'لم يُفحَص — لا مزوّد'
                 : 'خطأ'}
             </span>
           </span>

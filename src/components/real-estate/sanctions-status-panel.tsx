@@ -51,7 +51,7 @@ const PROVIDER_META: Record<Provider, ProviderMeta> = {
 // catch-all and rendered as "خطأ من المزوّد". Aligning here.
 interface TestResult {
   provisioned: boolean;
-  result?: 'clear' | 'possible_match' | 'confirmed_match' | 'error';
+  result?: 'clear' | 'possible_match' | 'confirmed_match' | 'error' | 'not_screened';
   matches?: Array<{
     source: string;
     matchedName: string;
@@ -318,6 +318,8 @@ function TestResultPill({ result }: { result: TestResult }) {
       ? 'var(--signal)'
       : r === 'possible_match'
       ? 'var(--warn)'
+      : r === 'not_screened'
+      ? 'var(--warn)'
       : 'var(--ink-faint)';
   const label =
     r === 'clear'
@@ -326,6 +328,8 @@ function TestResultPill({ result }: { result: TestResult }) {
       ? 'تطابق مؤكّد — يحتاج مراجعة بشرية فوراً'
       : r === 'possible_match'
       ? 'تطابق محتمل — يُنصح بالمراجعة'
+      : r === 'not_screened'
+      ? 'لم يُفحَص — لم يُضبط مزوّد فحص (SANCTIONS_PROVIDER)'
       : 'خطأ من المزوّد';
 
   return (

@@ -120,7 +120,10 @@ export async function GET(
           id: ss.id,
           ran_at: ss.screened_at,
           // Coerce backend's canonical result strings to the drawer's
-          // vocabulary so the chip renders correctly.
+          // vocabulary so the chip renders correctly. 'not_screened' (no
+          // provider configured — remediation C2) maps to its own honest
+          // chip, NOT 'error', so the operator sees "screening not run"
+          // rather than a retryable failure.
           result:
             ss.result === 'clear'
               ? 'clean'
@@ -128,6 +131,8 @@ export async function GET(
               ? 'match'
               : ss.result === 'possible_match'
               ? 'review_needed'
+              : ss.result === 'not_screened'
+              ? 'not_screened'
               : 'error',
           matched_lists: extractMatchedLists(ss.raw_response),
           notes: null,
