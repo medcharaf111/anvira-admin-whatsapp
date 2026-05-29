@@ -7,8 +7,11 @@ export const dynamic = 'force-dynamic';
 
 /**
  * PATCH /api/compliance — writes the compliance toggles on
- * dashboard_clients (consent_required, data_region). Real-estate clients
- * only — clinics/salons have no such surface.
+ * dashboard_clients (consent_required, data_region). data_region is a
+ * stated PREFERENCE for procurement, NOT an enforced residency control —
+ * Anvira does not control where Supabase/Meta store data; self-hosted
+ * Evolution is the only in-region lever. Real-estate clients only.
+ * KSA operating-country + REGA fields are refused (item 15, ksa_not_yet_supported).
  */
 export async function PATCH(req: NextRequest) {
   const supabase = await createClient();
@@ -34,6 +37,23 @@ export async function PATCH(req: NextRequest) {
     | null;
   if (!body) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
 
+  // Item 15 — refuse KSA compliance writes. The KSA regulatory framework
+  // (REGA/SAFIU) is not yet implemented; accepting country='KSA' or REGA
+  // license fields would let the operator persist state the bot/pipeline
+  // cannot honor. Gate at the route so a curl bypassing the hidden UI still
+  // fails. Reject the FAL/REGA fields even if country is omitted/UAE so a
+  // client can't slip KSA license data in sideways.
+  if (
+    body.country === 'KSA' ||
+    body.fal_license_number != null ||
+    body.rega_company_id != null
+  ) {
+    return NextResponse.json(
+      { error: 'ksa_not_yet_supported' },
+      { status: 403 }
+    );
+  }
+
   const updates: Record<string, unknown> = {};
   if (typeof body.consent_required === 'boolean') {
     updates.consent_required = body.consent_required;
@@ -41,16 +61,11 @@ export async function PATCH(req: NextRequest) {
   if (body.data_region === null || typeof body.data_region === 'string') {
     updates.data_region = body.data_region;
   }
-  // Track E — operating country + REGA license fields. Country gates
-  // which compliance UI surfaces show; FAL/REGA only relevant for KSA.
-  if (body.country === null || body.country === 'UAE' || body.country === 'KSA') {
+  // Track E — operating country. Only UAE (or clearing to null) is writable
+  // today; 'KSA' is refused above (item 15). FAL/REGA license fields are NOT
+  // persisted while KSA is unsupported.
+  if (body.country === null || body.country === 'UAE') {
     updates.country = body.country;
-  }
-  if (body.fal_license_number === null || typeof body.fal_license_number === 'string') {
-    updates.fal_license_number = body.fal_license_number;
-  }
-  if (body.rega_company_id === null || typeof body.rega_company_id === 'string') {
-    updates.rega_company_id = body.rega_company_id;
   }
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'no_fields' }, { status: 400 });

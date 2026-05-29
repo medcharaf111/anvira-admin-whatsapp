@@ -16,8 +16,9 @@ export type TenantCountry = 'UAE' | 'KSA';
  * `cloud_api`  — Meta-approved WABA. 1–3 week setup; canonical for
  *                consumer-facing brands but slow to provision.
  * `evolution`  — Self-hosted Baileys/Evolution bridge. QR-scan in
- *                minutes, PDPL-friendly (in-region hosting), ideal for
- *                pilot brokerages who can't wait for Meta approval.
+ *                minutes, PDPL-friendly (self-hosted; in-region hosting
+ *                possible, not guaranteed), ideal for pilot brokerages who
+ *                can't wait for Meta approval.
  * `mock`       — Dev/sandbox loopback. Never billed, never delivered.
  */
 export type Transport = 'cloud_api' | 'evolution' | 'mock';
@@ -44,7 +45,9 @@ export interface CurrentClient {
   client_type: ClientType;
   /** Whether the bot must capture explicit consent (PDPL Art. 25 etc.). */
   consent_required: boolean;
-  /** Optional ISO region code stored for residency. */
+  /** Stated data-region PREFERENCE (procurement hint). NOT an enforced
+   *  residency control — Anvira does not control Supabase/Meta storage
+   *  location. Self-hosted Evolution is the only in-region lever. */
   data_region: string | null;
   /**
    * Whether KYC/DNFBP compliance workflow is active for this brokerage.

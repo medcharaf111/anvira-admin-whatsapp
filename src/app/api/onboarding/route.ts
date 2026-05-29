@@ -20,11 +20,13 @@ interface Body {
     | 'other';
 }
 
-// Mirror the client-side block so a curl-savvy operator can't bypass
-// the form. 'other' is also blocked because we don't have a
-// regulatory-framework story for non-UAE-mainland / non-KSA tenants yet.
-const SUPPORTED_JURISDICTIONS = new Set(['uae_mainland', 'ksa_mainland']);
-const BLOCKED_JURISDICTIONS = new Set(['difc', 'adgm', 'other']);
+// Mirror the client-side block so a curl-savvy operator can't bypass the
+// form. Item 13: ksa_mainland is now BLOCKED at signup — the KSA regulatory
+// framework (REGA/SAFIU) is not yet implemented and the UAE-only AML/goAML
+// pipeline would silently mis-serve a Saudi brokerage. 'other'/DIFC/ADGM stay
+// blocked for their own DP-law reasons. Only uae_mainland provisions a tenant.
+const SUPPORTED_JURISDICTIONS = new Set(['uae_mainland']);
+const BLOCKED_JURISDICTIONS = new Set(['ksa_mainland', 'difc', 'adgm', 'other']);
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -57,17 +59,39 @@ export async function POST(req: Request) {
     );
   }
 
-  // Server-side jurisdiction guard. The form blocks DIFC/ADGM/other
-  // client-side but we re-check here to defend against direct API calls.
+  // Server-side jurisdiction guard. The form blocks non-uae_mainland
+  // client-side but we re-check here so a curl-savvy operator can't bypass
+  // it. Item 13: for ANY blocked jurisdiction we capture a ksa_waitlist lead
+  // row (service-role write; the operator has no tenant yet) BEFORE returning
+  // 403, and provision NOTHING.
   const jurisdiction = body.regulatory_jurisdiction ?? 'uae_mainland';
   if (BLOCKED_JURISDICTIONS.has(jurisdiction)) {
+    // Capture the lead. Best-effort: a waitlist-insert failure must NOT turn
+    // the 403 into a 500 or let the signup through — we log and still 403.
+    const svcWait = createServiceClient();
+    const { error: waitErr } = await svcWait.from('ksa_waitlist').insert({
+      email: user.email ?? null,
+      brokerage_name: body.name,
+      slug: body.slug,
+      jurisdiction,
+      owner_user_id: user.id,
+    });
+    if (waitErr) {
+      console.error('[onboarding] ksa_waitlist capture failed:', waitErr.message);
+    }
+
+    // Jurisdiction-aware copy. The KSA copy must NOT claim KSA is supported
+    // (the old 'outside UAE/KSA' string did). The client form discards
+    // `detail` (it throws json.error), so this is API-only documentation;
+    // the operator-facing copy lives in onboarding-form.tsx.
+    const detail =
+      jurisdiction === 'ksa_mainland'
+        ? 'Anvira does not yet support brokerages operating under the Saudi (KSA) regulatory framework (REGA/SAFIU). ' +
+          'We have added you to the KSA waitlist — email legal@anviraplus.it.com to be notified at launch.'
+        : 'Anvira does not currently support brokerages registered in DIFC, ADGM, or outside the UAE mainland. ' +
+          'Email legal@anviraplus.it.com for the waitlist.';
     return NextResponse.json(
-      {
-        error: 'jurisdiction_blocked',
-        detail:
-          'Anvira does not currently support brokerages registered in DIFC, ADGM, or outside UAE/KSA. ' +
-          'Email legal@anviraplus.it.com for the waitlist.',
-      },
+      { error: 'jurisdiction_blocked', detail },
       { status: 403 }
     );
   }

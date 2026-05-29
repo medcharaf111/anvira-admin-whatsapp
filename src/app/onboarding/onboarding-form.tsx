@@ -29,7 +29,7 @@ type Jurisdiction =
 
 const JURISDICTIONS: Array<{ value: Jurisdiction; label: string; blocked: boolean }> = [
   { value: 'uae_mainland', label: 'UAE — Mainland (مكتب في الإمارات، خارج المناطق الحرة المالية)', blocked: false },
-  { value: 'ksa_mainland', label: 'KSA — Mainland (مكتب في السعودية)', blocked: false },
+  { value: 'ksa_mainland', label: 'KSA — Mainland (مكتب في السعودية)', blocked: true },
   { value: 'difc', label: 'UAE — DIFC (Dubai International Financial Centre)', blocked: true },
   { value: 'adgm', label: 'UAE — ADGM (Abu Dhabi Global Market)', blocked: true },
   { value: 'other', label: 'Other / Else (واتساب لاحقاً)', blocked: true },
@@ -79,8 +79,11 @@ export function OnboardingForm() {
     const j = JURISDICTIONS.find((x) => x.value === jurisdiction);
     if (j?.blocked) {
       setError(
-        'لا ندعم حالياً المكاتب المسجّلة في DIFC / ADGM أو خارج الإمارات والسعودية. ' +
-          'انضم لقائمة الانتظار: legal@anviraplus.it.com'
+        jurisdiction === 'ksa_mainland'
+          ? 'لا ندعم حالياً المكاتب التي تعمل ضمن الإطار التنظيمي السعودي (REGA). ' +
+              'سجّلناك في قائمة انتظار السعودية — راسلنا على legal@anviraplus.it.com لنُعلمك عند الإطلاق.'
+          : 'لا ندعم حالياً المكاتب المسجّلة في DIFC / ADGM أو خارج الإمارات المنطقة الرئيسية. ' +
+              'انضم لقائمة الانتظار: legal@anviraplus.it.com'
       );
       return;
     }
@@ -205,16 +208,33 @@ export function OnboardingForm() {
             }}
             dir="rtl"
           >
-            DIFC و ADGM يعملان وفق قوانين حماية بيانات خاصة (DIFC DP Law،
-            ADGM DPR) تختلف عن PDPL الاتحادي. v1 من Anvira غير مصمَّمة لها.
-            للانضمام لقائمة الانتظار، راسلنا على{' '}
-            <a
-              href="mailto:legal@anviraplus.it.com"
-              style={{ color: 'var(--primary-glow)', textDecoration: 'underline' }}
-            >
-              legal@anviraplus.it.com
-            </a>
-            .
+            {jurisdiction === 'ksa_mainland' ? (
+              <>
+                الإطار التنظيمي السعودي (REGA / SAFIU) يختلف عن إطار الإمارات،
+                وإصدار Anvira الحالي مصمَّم للإمارات المنطقة الرئيسية فقط. سجّلناك
+                في قائمة انتظار السعودية. للتواصل، راسلنا على{' '}
+                <a
+                  href="mailto:legal@anviraplus.it.com"
+                  style={{ color: 'var(--primary-glow)', textDecoration: 'underline' }}
+                >
+                  legal@anviraplus.it.com
+                </a>
+                .
+              </>
+            ) : (
+              <>
+                DIFC و ADGM يعملان وفق قوانين حماية بيانات خاصة (DIFC DP Law،
+                ADGM DPR) تختلف عن PDPL الاتحادي. v1 من Anvira غير مصمَّمة لها.
+                للانضمام لقائمة الانتظار، راسلنا على{' '}
+                <a
+                  href="mailto:legal@anviraplus.it.com"
+                  style={{ color: 'var(--primary-glow)', textDecoration: 'underline' }}
+                >
+                  legal@anviraplus.it.com
+                </a>
+                .
+              </>
+            )}
           </div>
         )}
         <p className="text-[10px] mt-1.5" style={{ color: 'var(--ink-faint)' }}>

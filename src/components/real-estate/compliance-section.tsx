@@ -84,7 +84,7 @@ export function ComplianceSection({
 
         {dataRegion && (
           <section className="space-y-2">
-            <Label className="text-base">منطقة تخزين البيانات</Label>
+            <Label className="text-base">تفضيل منطقة البيانات</Label>
             <div
               className="p-3 text-sm tabular"
               style={{
@@ -98,7 +98,8 @@ export function ComplianceSection({
               {dataRegion}
             </div>
             <p className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
-              للتعديل، اتصل بفريق Anvira — تغيير منطقة التخزين يتطلب نقل بيانات.
+              هذا تفضيل مُسجَّل لأغراض المشتريات وليس ضماناً تعاقدياً بموقع
+              تخزين البيانات. للاستفسار، تواصل مع فريق Anvira.
             </p>
           </section>
         )}

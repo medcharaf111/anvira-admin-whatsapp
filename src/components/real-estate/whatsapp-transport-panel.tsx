@@ -60,9 +60,9 @@ const TRANSPORT_META: Record<Transport, TransportMeta> = {
     pillFg: 'var(--primary-glow)',
     pillBorder: 'color-mix(in srgb, var(--primary-glow) 35%, transparent)',
     helperAr:
-      'Evolution self-hosted · QR scan من جوّالك. جاهز في دقائق ومتوافق مع PDPL، يُستضاف داخل المنطقة.',
+      'Evolution self-hosted · QR scan من جوّالك. جاهز في دقائق ومتوافق مع PDPL، يمكن استضافته داخل المنطقة.',
     helperEn:
-      'Self-hosted Baileys bridge — minutes to onboard, in-region hosting.',
+      'Self-hosted Baileys bridge — minutes to onboard, in-region hosting available.',
     Icon: PlugZap,
   },
   mock: {

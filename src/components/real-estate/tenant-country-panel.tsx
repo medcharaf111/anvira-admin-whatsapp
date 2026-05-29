@@ -12,14 +12,10 @@ import type { TenantCountry } from '@/lib/client';
 /**
  * Track E — operating-country panel.
  *
- * Branches the compliance UI: UAE → RERA / DLD / goAML; KSA → REGA / SAFIU
- * / Iqama. When KSA is selected, surfaces the FAL license number + REGA
- * company ID fields (mandatory for Saudi brokerages under REGA Law 13).
- *
- * Country is intentionally explicit even though we backfill from
- * data_region — the residency region is an infrastructure choice, the
- * operating country is a regulatory choice, and operators sometimes
- * pick differently (e.g. a UAE brokerage hosting data in Bahrain).
+ * UAE → RERA / DLD / goAML. KSA support (REGA / SAFIU / FAL) is NOT yet
+ * implemented (item 15): the KSA selector is hidden and /api/compliance
+ * refuses country='KSA' or any FAL/REGA write. The KSA field block below is
+ * retained only to render legacy KSA tenants' previously-saved values.
  */
 export function TenantCountryPanel({
   initial,
@@ -91,7 +87,7 @@ export function TenantCountryPanel({
               dir="rtl"
             >
               تحدّد هذه البيانات إطار الامتثال الظاهر للوسيط: الإمارات (RERA /
-              DLD / goAML) أو السعودية (REGA / SAFIU / إيكاما).
+              DLD / goAML). دعم السعودية (REGA) قيد الإعداد وغير متاح حالياً.
             </p>
           </div>
         </div>
@@ -99,7 +95,7 @@ export function TenantCountryPanel({
         <div>
           <Label className="block mb-2">الدولة</Label>
           <div className="flex gap-2">
-            {(['UAE', 'KSA'] as const).map((c) => (
+            {(['UAE'] as const).map((c) => (
               <button
                 key={c}
                 type="button"
