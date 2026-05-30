@@ -105,12 +105,20 @@ export async function PATCH(
   }
 
   if (Object.keys(updates).length > 0) {
-    const { error } = await svc
+    // .select() forces a return of updated rows so we can verify the write
+    // actually landed; a foreign UUID or one belonging to another tenant
+    // updates 0 rows and we 404 honestly. Caught by the E2E run on
+    // 2026-05-30 (Phase D — foreign UUIDs were silently returning 200 ok).
+    const { data: updated, error } = await svc
       .from('conversations')
       .update(updates)
       .eq('id', id)
-      .eq('client_id', client.id);
+      .eq('client_id', client.id)
+      .select('id');
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!updated || updated.length === 0) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    }
   }
 
   logAction({

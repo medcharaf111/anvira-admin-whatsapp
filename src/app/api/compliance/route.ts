@@ -59,7 +59,16 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.consent_required === 'boolean') {
     updates.consent_required = body.consent_required;
   }
-  if (body.data_region === null || typeof body.data_region === 'string') {
+  // data_region: mirror the migration CHECK (20260519000000_realestate_pivot.sql:16-17).
+  // Without this guard, an unknown value reaches Postgres and surfaces as a
+  // raw 500 — caught by the E2E run on 2026-05-30 (Phase A.4).
+  const VALID_DATA_REGIONS = new Set(['eu', 'me-south-1', 'me-central-1']);
+  if (body.data_region === null) {
+    updates.data_region = null;
+  } else if (typeof body.data_region === 'string') {
+    if (!VALID_DATA_REGIONS.has(body.data_region)) {
+      return NextResponse.json({ error: 'invalid_data_region' }, { status: 400 });
+    }
     updates.data_region = body.data_region;
   }
   // Track E — operating country. Only UAE (or clearing to null) is writable
