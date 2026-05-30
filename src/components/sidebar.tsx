@@ -25,6 +25,9 @@ import {
   Shield,
   LifeBuoy,
   Trash2,
+  LayoutDashboard,
+  ShieldCheck,
+  TrendingUp,
   type LucideIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -39,6 +42,14 @@ interface NavItem {
   onlyFor?: ClientType[];
   /** If true, only operators see this item regardless of group. */
   founderOnly?: boolean;
+  /** If true, only platform super-admins see this item. Parallel to founderOnly. */
+  superAdminOnly?: boolean;
+  /**
+   * If true, render the row as a disabled placeholder with a "قريباً" badge.
+   * Used to advertise upcoming platform-admin pages whose routes are not
+   * mounted yet — keeps the IA visible without breaking on a 404.
+   */
+  comingSoon?: boolean;
 }
 
 interface NavGroup {
@@ -48,6 +59,8 @@ interface NavGroup {
   labelLat: string;
   items: NavItem[];
   onlyFor?: ClientType[];
+  /** If true, only platform super-admins see this group. Parallel to founderOnly on items. */
+  superAdminOnly?: boolean;
 }
 
 /* ------------------------------------------------------------------ *
@@ -166,9 +179,58 @@ const TOOLS: NavGroup = {
   ],
 };
 
+// Platform admin — cross-tenant oversight, only super-admins (is_super_admin
+// = true) ever see this group. The whole group is hidden when the user is
+// not a super-admin; gated again at the (app)/platform-admin/layout.tsx and
+// at the middleware level for direct URL hits. Three-layer defence.
+//
+// Phase 2 ships only the dashboard index + tenants list. The remaining
+// three entries are rendered as `comingSoon` placeholders so super-admins
+// can see the planned IA without the links breaking on a 404.
+const PLATFORM: NavGroup = {
+  label: 'الإشراف العام',
+  labelLat: 'PLATFORM',
+  superAdminOnly: true,
+  items: [
+    {
+      href: '/platform-admin',
+      label: 'لوحة المنصّة',
+      icon: LayoutDashboard,
+      superAdminOnly: true,
+    },
+    {
+      href: '/platform-admin/tenants',
+      label: 'المستأجِرون',
+      icon: Building2,
+      superAdminOnly: true,
+    },
+    {
+      href: '/platform-admin/super-admins',
+      label: 'المشرفون العامّون',
+      icon: ShieldCheck,
+      superAdminOnly: true,
+      comingSoon: true,
+    },
+    {
+      href: '/platform-admin/tier-gate-events',
+      label: 'محاولات الترقية',
+      icon: TrendingUp,
+      superAdminOnly: true,
+      comingSoon: true,
+    },
+    {
+      href: '/platform-admin/audit',
+      label: 'سجل الإشراف',
+      icon: ScrollText,
+      superAdminOnly: true,
+      comingSoon: true,
+    },
+  ],
+};
+
 function buildGroups(
   clientType: ClientType,
-  flags: { kycEnabled: boolean; isOperator: boolean }
+  flags: { kycEnabled: boolean; isOperator: boolean; isSuperAdmin: boolean }
 ): NavGroup[] {
   // Track D — "Compliance & AML" is regulatory (UAE Federal Decree-Law
   // 10/2025), not optional. Surface the nav entry for ALL real-estate
@@ -186,16 +248,27 @@ function buildGroups(
         : COMPLIANCE_BASE.items,
   };
 
-  const all: NavGroup[] = [DAILY_OPS, CATALOG, compliance, INSIGHTS, SETUP, TOOLS];
+  const all: NavGroup[] = [
+    DAILY_OPS,
+    CATALOG,
+    compliance,
+    INSIGHTS,
+    SETUP,
+    TOOLS,
+    PLATFORM,
+  ];
 
-  // Filter by client_type at group level
+  // Filter by client_type at group level, then by super-admin gate at
+  // group level, then by per-item gates (client_type, founder, super-admin).
   return all
     .filter((g) => !g.onlyFor || g.onlyFor.includes(clientType))
+    .filter((g) => !g.superAdminOnly || flags.isSuperAdmin)
     .map((g) => ({
       ...g,
       items: g.items
         .filter((i) => !i.onlyFor || i.onlyFor.includes(clientType))
-        .filter((i) => !i.founderOnly || flags.isOperator),
+        .filter((i) => !i.founderOnly || flags.isOperator)
+        .filter((i) => !i.superAdminOnly || flags.isSuperAdmin),
     }))
     // Drop groups that ended up empty after filtering (e.g. Tools with no
     // operator for a non-operator user might still keep mock-phone, so
@@ -207,12 +280,14 @@ export function Sidebar({
   alertCount = 0,
   hotLeadCount = 0,
   isOperator = false,
+  isSuperAdmin = false,
   clientType = 'clinic',
   kycEnabled = false,
 }: {
   alertCount?: number;
   hotLeadCount?: number;
   isOperator?: boolean;
+  isSuperAdmin?: boolean;
   clientType?: ClientType;
   kycEnabled?: boolean;
 }) {
@@ -225,7 +300,7 @@ export function Sidebar({
     router.push('/login');
   }
 
-  const groups = buildGroups(clientType, { kycEnabled, isOperator });
+  const groups = buildGroups(clientType, { kycEnabled, isOperator, isSuperAdmin });
 
   const navContent = (
     <>
@@ -280,10 +355,60 @@ export function Sidebar({
             </div>
             <div className="space-y-px">
               {group.items.map((item) => {
-                const active = pathname.startsWith(item.href);
+                // Active-state matcher: exact match for the href itself,
+                // OR prefix match for nested sub-routes (href + '/'). This
+                // fixes the bug where e.g. `/platform-admin` stayed active
+                // on `/platform-admin/tenants` because every sub-path is a
+                // prefix-match of its index. Applied to every item so the
+                // same bug can't reappear elsewhere.
+                const active =
+                  pathname === item.href ||
+                  pathname.startsWith(item.href + '/');
                 let count = 0;
                 if (item.badgeKey === 'alerts') count = alertCount;
                 else if (item.badgeKey === 'hot_leads') count = hotLeadCount;
+
+                // Coming-soon entries are rendered as inert <div>s so the
+                // user can see the planned IA without clicking through to
+                // a 404. Same visual chrome minus the active treatment.
+                if (item.comingSoon) {
+                  return (
+                    <div
+                      key={item.href}
+                      aria-disabled="true"
+                      title="قريباً"
+                      className="relative flex items-center gap-3 px-3 py-2 text-sm group cursor-not-allowed"
+                      style={{
+                        color: 'var(--ink-faint)',
+                        fontWeight: 400,
+                        background: 'transparent',
+                        borderRadius: '3px',
+                        opacity: 0.7,
+                      }}
+                    >
+                      <item.icon
+                        className="w-4 h-4 shrink-0"
+                        strokeWidth={1.5}
+                      />
+                      <span className="flex-1 truncate">{item.label}</span>
+                      <span
+                        className="text-[9px] px-1.5 py-0.5"
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--ink-faint)',
+                          background: 'var(--paper)',
+                          border: '1px solid var(--rule-soft)',
+                          borderRadius: '2px',
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        soon · قريباً
+                      </span>
+                    </div>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.href}

@@ -7,6 +7,7 @@ import { RealtimeRefresh } from '@/components/realtime-refresh';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { isOperatorEmail } from '@/lib/operator';
+import { requireSuperAdminOptional } from '@/lib/platform-admin/guard';
 import { redirect } from 'next/navigation';
 
 export default async function AppLayout({
@@ -46,6 +47,14 @@ export default async function AppLayout({
 
   const operatorView = isOperatorEmail(user.email);
 
+  // Super-admin status — drives the PLATFORM sidebar group and nothing
+  // else at this layout level. Optional variant never throws; if the
+  // RPC fails or the user is not a super-admin, sa === null and we
+  // hide the group. Real enforcement lives at
+  // /platform-admin/layout.tsx + middleware + every API route.
+  const sa = await requireSuperAdminOptional();
+  const isSuperAdmin = sa !== null;
+
   return (
     <div dir="rtl" className="flex min-h-dvh" style={{ background: 'var(--paper)' }}>
       {/* Layout-level realtime: refreshes the unresolved-handoff badge in the
@@ -71,6 +80,7 @@ export default async function AppLayout({
         alertCount={alertCount ?? 0}
         hotLeadCount={hotLeadCount}
         isOperator={operatorView}
+        isSuperAdmin={isSuperAdmin}
         clientType={client.client_type}
         kycEnabled={client.kyc_enabled}
       />

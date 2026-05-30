@@ -43,6 +43,28 @@ export async function middleware(req: NextRequest) {
   if (user && (path === '/login' || path === '/signup')) {
     return NextResponse.redirect(new URL('/conversations', req.url));
   }
+
+  // Platform admin guard — short-circuits any /platform-admin/* request
+  // before the RSC tree renders so a non-super-admin doesn't get a
+  // half-painted page before /platform-admin/layout.tsx redirects them.
+  // This is belt-and-braces; the real authorization lives in:
+  //   1. /platform-admin/layout.tsx (requireSuperAdminOptional)
+  //   2. Every /api/platform-admin/* route (withSuperAdmin wrapper)
+  // We do NOT import from src/lib/platform-admin/* here — those files
+  // pull Node-only deps (crypto) which break in the edge runtime.
+  // supabase.rpc() is edge-safe via @supabase/ssr.
+  //
+  // Close-by-default: any RPC error, false, or null result → redirect.
+  if (user && path.startsWith('/platform-admin')) {
+    const { data, error } = await supabase.rpc('is_super_admin', {
+      p_user_id: user.id,
+    });
+    const allowed = !error && data === true;
+    if (!allowed) {
+      return NextResponse.redirect(new URL('/conversations', req.url));
+    }
+  }
+
   return res;
 }
 

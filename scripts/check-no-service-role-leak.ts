@@ -19,6 +19,7 @@
 //   - src/lib/platform-admin/*.ts               (server helpers)
 //   - src/lib/audit.ts                          (server-only audit writer)
 //   - src/app/api/**                            (route handlers)
+//   - src/app/(app)/platform-admin/**           (RSC pages, see below)
 //   - scripts/**                                (this lint itself)
 //
 // Run with:  npx tsx scripts/check-no-service-role-leak.ts
@@ -37,6 +38,12 @@ const SERVER_ALLOWLIST_PATTERNS: RegExp[] = [
   /^src[\\/]lib[\\/]audit\.ts$/,
   /^src[\\/]app[\\/]api[\\/]/,
   /^src[\\/]middleware\.ts$/,
+  // Platform-admin RSC segment: pages here are server components by
+  // convention (no 'use client' directive) and legitimately call the
+  // service-role factory to avoid the RSC→same-process-API double-hop
+  // anti-pattern. Any 'use client' file under this path is still flagged
+  // by the isUseClient check above, which runs before the allow-list.
+  /^src[\\/]app[\\/]\(app\)[\\/]platform-admin[\\/]/,
 ];
 
 const SERVICE_ROLE_KEY_RE = /SUPABASE_SERVICE_ROLE_KEY\b/;
