@@ -15,11 +15,12 @@ const LANGUAGES = [
   { value: 'fr', label: 'Français' },
 ];
 
-// Per legal-posture addendum. DIFC + ADGM are blocked at signup with
-// a waitlist explainer until v1.5 supports their distinct DP laws.
-// Order matches the typical confusion gradient: UAE-mainland and KSA
-// first (the supported cases), then DIFC/ADGM (the blocked ones),
-// then "other" (covered by a different explainer).
+// Country + jurisdiction selection. UAE and KSA are both visible primary
+// choices so a Saudi broker is not buried in a dropdown — but KSA stays
+// hard-gated to the waitlist per KSA_ADAPTATION_PLAN.md §1 (the REGA/SAFIU
+// path isn't shipped yet). DIFC/ADGM are blocked under UAE for distinct
+// DP-law reasons until v1.5.
+type Country = 'UAE' | 'KSA';
 type Jurisdiction =
   | 'uae_mainland'
   | 'ksa_mainland'
@@ -27,13 +28,24 @@ type Jurisdiction =
   | 'adgm'
   | 'other';
 
-const JURISDICTIONS: Array<{ value: Jurisdiction; label: string; blocked: boolean }> = [
-  { value: 'uae_mainland', label: 'UAE — Mainland (مكتب في الإمارات، خارج المناطق الحرة المالية)', blocked: false },
-  { value: 'ksa_mainland', label: 'KSA — Mainland (مكتب في السعودية)', blocked: true },
-  { value: 'difc', label: 'UAE — DIFC (Dubai International Financial Centre)', blocked: true },
-  { value: 'adgm', label: 'UAE — ADGM (Abu Dhabi Global Market)', blocked: true },
-  { value: 'other', label: 'Other / Else (واتساب لاحقاً)', blocked: true },
+const COUNTRY_OPTIONS: Array<{ value: Country; label_ar: string; label_en: string; supported: boolean }> = [
+  { value: 'UAE', label_ar: 'الإمارات', label_en: 'United Arab Emirates', supported: true },
+  { value: 'KSA', label_ar: 'السعودية', label_en: 'Saudi Arabia', supported: false },
 ];
+
+// Sub-jurisdictions filtered per country. Only uae_mainland is currently
+// onboardable end-to-end; everything else routes to a waitlist insert.
+const JURISDICTIONS_BY_COUNTRY: Record<Country, Array<{ value: Jurisdiction; label: string; blocked: boolean }>> = {
+  UAE: [
+    { value: 'uae_mainland', label: 'UAE — Mainland (مكتب في الإمارات، خارج المناطق الحرة)', blocked: false },
+    { value: 'difc', label: 'UAE — DIFC (Dubai International Financial Centre)', blocked: true },
+    { value: 'adgm', label: 'UAE — ADGM (Abu Dhabi Global Market)', blocked: true },
+    { value: 'other', label: 'Other / Else (مكتب خارج التصنيفات أعلاه)', blocked: true },
+  ],
+  KSA: [
+    { value: 'ksa_mainland', label: 'KSA — Mainland (مكتب في المملكة العربية السعودية)', blocked: true },
+  ],
+};
 
 function slugify(s: string): string {
   return s
@@ -51,7 +63,21 @@ export function OnboardingForm() {
   const [slug, setSlug] = useState('');
   const [timezone, setTimezone] = useState('Asia/Riyadh');
   const [language, setLanguage] = useState('ar');
+  const [country, setCountry] = useState<Country>('UAE');
   const [jurisdiction, setJurisdiction] = useState<Jurisdiction>('uae_mainland');
+
+  // When the broker switches country, snap jurisdiction to the first option
+  // for that country so the form never holds an inconsistent (country, jurisdiction)
+  // pair across renders (e.g. country=KSA + jurisdiction=uae_mainland).
+  function handleCountryChange(c: Country) {
+    setCountry(c);
+    const first = JURISDICTIONS_BY_COUNTRY[c][0];
+    setJurisdiction(first.value);
+  }
+
+  const currentJurisdictions = JURISDICTIONS_BY_COUNTRY[country];
+  const currentJurisdiction = currentJurisdictions.find((j) => j.value === jurisdiction)
+    ?? currentJurisdictions[0];
   // PDPL + legal-posture addendum: brokerage administrator must accept
   // the Terms of Service + Privacy Policy before account creation. The
   // server-side route writes the acceptance into audit_log (action=
@@ -73,11 +99,11 @@ export function OnboardingForm() {
     e.preventDefault();
     if (!name.trim() || !slug.trim()) return;
 
-    // DIFC / ADGM / other are blocked at signup per the legal-posture
-    // addendum. Client-side guard mirrors a server-side check in the
-    // onboarding route so a curl-savvy operator can't bypass it.
-    const j = JURISDICTIONS.find((x) => x.value === jurisdiction);
-    if (j?.blocked) {
+    // KSA + DIFC + ADGM + other are blocked at signup per the legal-posture
+    // addendum + KSA_ADAPTATION_PLAN.md §1. Client-side guard mirrors a
+    // server-side check in the onboarding route so a curl-savvy operator
+    // can't bypass it.
+    if (currentJurisdiction.blocked) {
       setError(
         jurisdiction === 'ksa_mainland'
           ? 'لا ندعم حالياً المكاتب التي تعمل ضمن الإطار التنظيمي السعودي (REGA). ' +
@@ -183,6 +209,58 @@ export function OnboardingForm() {
         </select>
       </div>
 
+      {/* Country (UAE / KSA) is the primary regulatory decision and gets its
+          own visible step. UAE is fully supported today; KSA is a waitlist
+          flow per KSA_ADAPTATION_PLAN.md §1 — the broker still progresses
+          through the form, but submit triggers a ksa_waitlist insert + 403
+          rather than a tenant creation, with honest copy explaining why. */}
+      <div>
+        <label className="field-label">الدولة · Country</label>
+        <div className="grid grid-cols-2 gap-2">
+          {COUNTRY_OPTIONS.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => handleCountryChange(c.value)}
+              aria-pressed={country === c.value}
+              className="h-12 px-4 text-[13px] transition-all relative"
+              style={{
+                background:
+                  country === c.value ? 'var(--ink)' : 'var(--paper-sink)',
+                color: country === c.value ? 'var(--paper)' : 'var(--ink-soft)',
+                border: '1px solid var(--rule)',
+                borderRadius: '3px',
+                fontFamily: 'var(--font-mono)',
+                letterSpacing: '0.04em',
+              }}
+            >
+              <span dir="rtl">{c.label_ar}</span>
+              <span className="mx-2" style={{ opacity: 0.5 }}>·</span>
+              <span dir="ltr">{c.label_en}</span>
+              {!c.supported && (
+                <span
+                  className="absolute top-1 right-1 text-[9px] px-1.5 py-0.5"
+                  style={{
+                    background: 'color-mix(in srgb, var(--warn, #b6852b) 25%, transparent)',
+                    color: country === c.value ? 'var(--paper)' : 'var(--ink-soft)',
+                    borderRadius: '2px',
+                    letterSpacing: '0.05em',
+                  }}
+                  dir="rtl"
+                >
+                  قائمة انتظار
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] mt-1.5" style={{ color: 'var(--ink-faint)' }} dir="rtl">
+          {country === 'KSA'
+            ? 'إصدار Anvira الحالي مصمَّم للإمارات. مسار السعودية (REGA / SAFIU) قيد الإعداد — التسجيل هنا يُسجّلك في قائمة الانتظار.'
+            : 'إصدار Anvira الحالي يدعم الإمارات المنطقة الرئيسية. الإمارات المناطق الحرة (DIFC / ADGM) قائمة انتظار.'}
+        </p>
+      </div>
+
       <div>
         <label className="field-label">الاختصاص التنظيمي · Regulatory jurisdiction</label>
         <select
@@ -190,14 +268,14 @@ export function OnboardingForm() {
           onChange={(e) => setJurisdiction(e.target.value as Jurisdiction)}
           className="input-boxed"
         >
-          {JURISDICTIONS.map((j) => (
+          {currentJurisdictions.map((j) => (
             <option key={j.value} value={j.value}>
               {j.label}
               {j.blocked ? ' — (غير مدعوم حالياً)' : ''}
             </option>
           ))}
         </select>
-        {JURISDICTIONS.find((j) => j.value === jurisdiction)?.blocked && (
+        {currentJurisdiction.blocked && (
           <div
             className="mt-2 p-3 text-[11px] leading-relaxed"
             style={{
@@ -208,7 +286,7 @@ export function OnboardingForm() {
             }}
             dir="rtl"
           >
-            {jurisdiction === 'ksa_mainland' ? (
+            {country === 'KSA' ? (
               <>
                 الإطار التنظيمي السعودي (REGA / SAFIU) يختلف عن إطار الإمارات،
                 وإصدار Anvira الحالي مصمَّم للإمارات المنطقة الرئيسية فقط. سجّلناك
@@ -238,8 +316,9 @@ export function OnboardingForm() {
           </div>
         )}
         <p className="text-[10px] mt-1.5" style={{ color: 'var(--ink-faint)' }}>
-          نحتاج هذا الحقل لاختيار إطار الامتثال الصحيح (PDPL اتحادي، أو
-          قوانين المناطق الحرة).
+          {country === 'UAE'
+            ? 'PDPL الاتحادي يحكم الإمارات المنطقة الرئيسية. المناطق الحرة المالية (DIFC / ADGM) لها قوانين خاصة.'
+            : 'KSA — REGA / SAFIU. v1 من Anvira لا تدعمها بعد.'}
         </p>
       </div>
 
@@ -299,7 +378,7 @@ export function OnboardingForm() {
           !name.trim() ||
           !slug.trim() ||
           !acceptedTos ||
-          (JURISDICTIONS.find((x) => x.value === jurisdiction)?.blocked ?? false)
+          currentJurisdiction.blocked
         }
         className="btn-primary group w-full h-12 mt-4"
       >
