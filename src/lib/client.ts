@@ -140,6 +140,18 @@ export interface CurrentClient {
   admin_locked: boolean;
   /** Broker TRN (UAE FTA) or VAT (KSA ZATCA). 15 digits. Optional. */
   tax_registration_number: string | null;
+  // -- Track P (PLATFORM_ADMIN_PLAN.md §2 + Appendix B) -----------------------
+  /**
+   * True iff this user has an active row in public.super_admins. STRICTLY
+   * ORTHOGONAL to current_user_role — a super-admin keeps whatever
+   * tenant_role they have in their own brokerage. UI surfaces gate cross-
+   * tenant features (sidebar PLATFORM group, /platform-admin/* pages) on
+   * this flag; tenant-scoped permissions still consult current_user_role.
+   *
+   * Populated via supabase.rpc('is_super_admin') on a pre-migration db
+   * the helper is missing and we degrade to false (closed by default).
+   */
+  is_super_admin: boolean;
 }
 
 /**
@@ -252,6 +264,16 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
     rawStatus === 'cancelled'
       ? rawStatus
       : 'pilot';
+  // Track P (PLATFORM_ADMIN_PLAN.md §2 + Appendix B): cross-tenant
+  // super-admin flag. Closed-by-default on RPC failure (e.g. migration
+  // 20260618 not yet applied to this database).
+  let isSuperAdmin = false;
+  try {
+    const sa = await supabase.rpc('is_super_admin', { p_user_id: user.id });
+    if (!sa.error && sa.data === true) isSuperAdmin = true;
+  } catch {
+    // Fail closed — leaves isSuperAdmin === false.
+  }
   return {
     id: data.id as string,
     slug: data.slug as string,
@@ -316,6 +338,7 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
       typeof data.tax_registration_number === 'string'
         ? (data.tax_registration_number as string)
         : null,
+    is_super_admin: isSuperAdmin,
   };
 }
 
