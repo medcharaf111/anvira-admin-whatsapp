@@ -17,6 +17,10 @@
 //   - src/lib/platform-admin/service-client.ts (the canonical home)
 //   - src/lib/supabase/server.ts                (the legacy home)
 //   - src/lib/platform-admin/*.ts               (server helpers)
+//   - src/lib/operator/*.ts                     (founder-only operator panel
+//                                                service-role queries — gated
+//                                                by requireOperator() in
+//                                                src/lib/operator.ts)
 //   - src/lib/audit.ts                          (server-only audit writer)
 //   - src/app/api/**                            (route handlers)
 //   - src/app/(app)/platform-admin/**           (RSC pages, see below)
@@ -34,6 +38,7 @@ const SRC_ROOT = resolve(process.cwd(), 'src');
 
 const SERVER_ALLOWLIST_PATTERNS: RegExp[] = [
   /^src[\\/]lib[\\/]platform-admin[\\/]/,
+  /^src[\\/]lib[\\/]operator[\\/]/,
   /^src[\\/]lib[\\/]supabase[\\/]server\.ts$/,
   /^src[\\/]lib[\\/]audit\.ts$/,
   /^src[\\/]app[\\/]api[\\/]/,

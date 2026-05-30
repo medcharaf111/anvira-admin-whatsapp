@@ -44,7 +44,7 @@ export interface TierGateContext {
 
 // pilot + grandfather get everything. suspended tier is a sticky lockout
 // (refuse all features regardless of status).
-const TIER_RANK: Record<SubscriptionTier, number> = {
+export const TIER_RANK: Record<SubscriptionTier, number> = {
   pilot: 99,
   grandfather: 99,
   enterprise: 3,
