@@ -3,6 +3,13 @@ import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { callInternal, getInternalContext } from '@/lib/internal-api';
 import { logAction } from '@/lib/audit';
+import {
+  tierAllows,
+  tierNotAllowedBody,
+  TierNotAllowedError,
+  FEATURE_MIN_TIER,
+  blockMode,
+} from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,9 +31,27 @@ export async function GET(req: NextRequest) {
 
   const client = await getCurrentClient();
   if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
+  // SUBSCRIPTION_PLAN.md §5.3 — three-step gate precedence.
+  // (1) vertical refusal → 403.
   if (client.client_type !== 'real_estate') {
     return NextResponse.json({ error: 'not_real_estate' }, { status: 403 });
   }
+  // (2) tier refusal → 402 (hard) / pass-through (soft). In Phase 1 with
+  // TIER_ENFORCEMENT_MODE='soft' the GET still serves an empty list; the
+  // hard-mode flip in Phase 4 will return 402 with the upgrade URL.
+  if (!tierAllows(client, 'kyc_workflow') && blockMode('kyc_workflow') === 'hard') {
+    return NextResponse.json(
+      tierNotAllowedBody(
+        new TierNotAllowedError(
+          'kyc_workflow',
+          client.subscription_tier,
+          FEATURE_MIN_TIER.kyc_workflow
+        )
+      ),
+      { status: 402 }
+    );
+  }
+  // (3) existing opt-in flag → empty list (kept for back-compat).
   if (!client.kyc_enabled) {
     return NextResponse.json({ cases: [], provisioned: true, kyc_enabled: false });
   }
@@ -74,8 +99,21 @@ export async function POST(req: NextRequest) {
 
   const client = await getCurrentClient();
   if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
+  // SUBSCRIPTION_PLAN.md §5.3 — three-step gate (vertical → tier → opt-in).
   if (client.client_type !== 'real_estate') {
     return NextResponse.json({ error: 'not_real_estate' }, { status: 403 });
+  }
+  if (!tierAllows(client, 'kyc_workflow') && blockMode('kyc_workflow') === 'hard') {
+    return NextResponse.json(
+      tierNotAllowedBody(
+        new TierNotAllowedError(
+          'kyc_workflow',
+          client.subscription_tier,
+          FEATURE_MIN_TIER.kyc_workflow
+        )
+      ),
+      { status: 402 }
+    );
   }
   if (!client.kyc_enabled) {
     return NextResponse.json({ error: 'kyc_disabled' }, { status: 400 });

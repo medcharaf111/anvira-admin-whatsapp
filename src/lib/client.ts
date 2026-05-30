@@ -1,7 +1,19 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import type { SubscriptionTier } from '@/lib/tier-gates';
 
 export type ClientType = 'clinic' | 'salon' | 'real_estate';
+/**
+ * SUBSCRIPTION_PLAN.md §3 — billing state-machine state. Drives the
+ * past_due / suspended / cancelled banners + the pilot-countdown header.
+ */
+export type SubscriptionStatus =
+  | 'pilot'
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'suspended'
+  | 'cancelled';
 export type CalendarMode = 'gregorian' | 'hijri' | 'dual';
 /**
  * Tenant operating country (Track E). Branches compliance UI:
@@ -109,6 +121,25 @@ export interface CurrentClient {
    * exists yet (legacy single-owner brokerages before migration backfill).
    */
   current_user_role: TenantRole;
+  // -- Track G (SUBSCRIPTION_PLAN.md §3, §5.2) --------------------------------
+  /** Commercial tier (default 'pilot' for every existing tenant). */
+  subscription_tier: SubscriptionTier;
+  /** Billing-state-machine state (default 'pilot'). */
+  subscription_status: SubscriptionStatus;
+  /** PSP-reported period end. Null while in pilot. */
+  current_period_end: string | null;
+  /** Opaque PSP ids. Null pre-conversion. */
+  provider_subscription_id: string | null;
+  provider_customer_id: string | null;
+  /** Pilot lifecycle timestamps. operator-editable for strategic pilots. */
+  pilot_started_at: string | null;
+  pilot_ends_at: string | null;
+  /** Worker guard. False ⇒ bot refuses to reply (suspended/cancelled). */
+  bot_enabled: boolean;
+  /** Admin UI lockout. True ⇒ everything except /billing + /data-export 403s. */
+  admin_locked: boolean;
+  /** Broker TRN (UAE FTA) or VAT (KSA ZATCA). 15 digits. Optional. */
+  tax_registration_number: string | null;
 }
 
 /**
@@ -159,7 +190,7 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
   const wideQuery = supabase
     .from('dashboard_clients')
     .select(
-      'id, slug, name, owner_id, wa_number, is_sandbox, business_timezone, default_calendar_id, client_type, consent_required, data_region, kyc_enabled, calendar_mode, enabled_languages, transport, evolution_instance, evolution_server_url, country, fal_license_number, rega_company_id, emirate'
+      'id, slug, name, owner_id, wa_number, is_sandbox, business_timezone, default_calendar_id, client_type, consent_required, data_region, kyc_enabled, calendar_mode, enabled_languages, transport, evolution_instance, evolution_server_url, country, fal_license_number, rega_company_id, emirate, subscription_tier, subscription_status, current_period_end, provider_subscription_id, provider_customer_id, pilot_started_at, pilot_ends_at, bot_enabled, admin_locked, tax_registration_number'
     );
   const wide = await (activeClientId
     ? wideQuery.eq('id', activeClientId).maybeSingle()
@@ -200,6 +231,27 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
   // owner (pre-migration single-owner brokerages).
   const currentUserRole: TenantRole =
     resolvedRole ?? (data.owner_id === user.id ? 'owner' : 'agent');
+  // Track G (SUBSCRIPTION_PLAN.md §3): graceful degrade to the safe defaults
+  // on a pre-migration cluster — treat unknown rows as pilot so we never
+  // accidentally hard-block legacy tenants.
+  const rawTier = data.subscription_tier;
+  const subscriptionTier: SubscriptionTier =
+    rawTier === 'team' ||
+    rawTier === 'brokerage' ||
+    rawTier === 'enterprise' ||
+    rawTier === 'grandfather' ||
+    rawTier === 'suspended'
+      ? rawTier
+      : 'pilot';
+  const rawStatus = data.subscription_status;
+  const subscriptionStatus: SubscriptionStatus =
+    rawStatus === 'trialing' ||
+    rawStatus === 'active' ||
+    rawStatus === 'past_due' ||
+    rawStatus === 'suspended' ||
+    rawStatus === 'cancelled'
+      ? rawStatus
+      : 'pilot';
   return {
     id: data.id as string,
     slug: data.slug as string,
@@ -232,6 +284,38 @@ export async function getCurrentClient(): Promise<CurrentClient | null> {
         ? (data.emirate as Emirate)
         : null,
     current_user_role: currentUserRole,
+    subscription_tier: subscriptionTier,
+    subscription_status: subscriptionStatus,
+    current_period_end:
+      typeof data.current_period_end === 'string'
+        ? (data.current_period_end as string)
+        : null,
+    provider_subscription_id:
+      typeof data.provider_subscription_id === 'string'
+        ? (data.provider_subscription_id as string)
+        : null,
+    provider_customer_id:
+      typeof data.provider_customer_id === 'string'
+        ? (data.provider_customer_id as string)
+        : null,
+    pilot_started_at:
+      typeof data.pilot_started_at === 'string'
+        ? (data.pilot_started_at as string)
+        : null,
+    pilot_ends_at:
+      typeof data.pilot_ends_at === 'string'
+        ? (data.pilot_ends_at as string)
+        : null,
+    bot_enabled:
+      typeof data.bot_enabled === 'boolean' ? (data.bot_enabled as boolean) : true,
+    admin_locked:
+      typeof data.admin_locked === 'boolean'
+        ? (data.admin_locked as boolean)
+        : false,
+    tax_registration_number:
+      typeof data.tax_registration_number === 'string'
+        ? (data.tax_registration_number as string)
+        : null,
   };
 }
 

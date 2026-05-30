@@ -2,6 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { logAction } from '@/lib/audit';
+import {
+  tierAllows,
+  blockMode,
+  tierNotAllowedBody,
+  TierNotAllowedError,
+  FEATURE_MIN_TIER,
+} from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,6 +98,26 @@ export async function POST(req: NextRequest) {
     | null;
   if (!body?.wa_number?.trim()) {
     return NextResponse.json({ error: 'missing_wa_number' }, { status: 400 });
+  }
+
+  // SUBSCRIPTION_PLAN.md §5.3, §5.4 — multi_branch_numbers is Brokerage+
+  // PAST the first number; first number is free at every tier. The backend
+  // does the final cap check against TIER_MAX_WA_NUMBERS using the actual
+  // count from client_numbers, so this is a friendly pre-check only.
+  if (
+    !tierAllows(client, 'multi_branch_numbers') &&
+    blockMode('multi_branch_numbers') === 'hard'
+  ) {
+    return NextResponse.json(
+      tierNotAllowedBody(
+        new TierNotAllowedError(
+          'multi_branch_numbers',
+          client.subscription_tier,
+          FEATURE_MIN_TIER.multi_branch_numbers
+        )
+      ),
+      { status: 402 }
+    );
   }
 
   const backend = process.env.NEXT_PUBLIC_BACKEND_URL;

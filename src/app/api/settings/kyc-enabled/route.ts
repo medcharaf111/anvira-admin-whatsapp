@@ -2,6 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { logAction } from '@/lib/audit';
+import {
+  tierAllows,
+  blockMode,
+  tierNotAllowedBody,
+  TierNotAllowedError,
+  FEATURE_MIN_TIER,
+} from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +31,22 @@ export async function POST(req: NextRequest) {
   if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
   if (client.client_type !== 'real_estate') {
     return NextResponse.json({ error: 'not_real_estate' }, { status: 403 });
+  }
+
+  // SUBSCRIPTION_PLAN.md §5.3, §16 — kyc_workflow tier precondition so a
+  // below-tier tenant can't flip the kyc_enabled toggle even via curl.
+  // Phase 1 (soft mode) lets the flip through; Phase 4 returns 402.
+  if (!tierAllows(client, 'kyc_workflow') && blockMode('kyc_workflow') === 'hard') {
+    return NextResponse.json(
+      tierNotAllowedBody(
+        new TierNotAllowedError(
+          'kyc_workflow',
+          client.subscription_tier,
+          FEATURE_MIN_TIER.kyc_workflow
+        )
+      ),
+      { status: 402 }
+    );
   }
 
   const body = (await req.json().catch(() => null)) as { enabled?: boolean } | null;

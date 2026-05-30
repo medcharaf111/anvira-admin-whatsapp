@@ -2,6 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { callInternal, getInternalContext } from '@/lib/internal-api';
+import {
+  tierAllows,
+  blockMode,
+  tierNotAllowedBody,
+  TierNotAllowedError,
+  FEATURE_MIN_TIER,
+} from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +34,20 @@ export async function GET(req: NextRequest) {
   if (!client) return NextResponse.json({ error: 'no_client' }, { status: 403 });
   if (client.client_type !== 'real_estate') {
     return NextResponse.json({ error: 'not_real_estate' }, { status: 403 });
+  }
+
+  // SUBSCRIPTION_PLAN.md §5.3 — rera_forms is Brokerage+, "soft → hard at GA".
+  if (!tierAllows(client, 'rera_forms') && blockMode('rera_forms') === 'hard') {
+    return NextResponse.json(
+      tierNotAllowedBody(
+        new TierNotAllowedError(
+          'rera_forms',
+          client.subscription_tier,
+          FEATURE_MIN_TIER.rera_forms
+        )
+      ),
+      { status: 402 }
+    );
   }
 
   const type = (new URL(req.url).searchParams.get('type') ?? '').toUpperCase();

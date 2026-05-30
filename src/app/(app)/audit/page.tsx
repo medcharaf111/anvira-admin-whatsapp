@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { requireCurrentClient } from '@/lib/client';
 import { PageHeader } from '@/components/page-header';
 import { AuditTabs, type AuditRow, type ConsentRow } from './audit-tabs';
+import { tierAllows, FEATURE_MIN_TIER } from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,11 @@ export default async function AuditPage() {
   const client = await requireCurrentClient();
   const supabase = await createClient();
   const isRE = client.client_type === 'real_estate';
+  // SUBSCRIPTION_PLAN.md §5.3, §16 — audit_log_read is Brokerage+, SOFT.
+  // Phase 1 still renders the page but surfaces an inline upgrade panel
+  // when below tier. Phase 3 swaps this for the shared TierUpgradePanel
+  // component.
+  const tierAllowsAudit = tierAllows(client, 'audit_log_read');
 
   // General audit log — used by both verticals
   const { data: auditRaw } = await supabase
@@ -63,6 +69,17 @@ export default async function AuditPage() {
             : `آخر ${audit.length} إجراء على هذا الحساب`
         }
       />
+
+      {!tierAllowsAudit && (
+        <div
+          dir="rtl"
+          className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <strong>سجل المراجعة الكامل ميزة من الباقة المتوسطة فأعلى.</strong>{' '}
+          ترقّى للوصول إلى التصدير وسجل الموافقات الكامل. (Required tier:{' '}
+          {FEATURE_MIN_TIER.audit_log_read})
+        </div>
+      )}
 
       <AuditTabs
         audit={audit}

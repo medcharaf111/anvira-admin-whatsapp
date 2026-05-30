@@ -2,6 +2,14 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { callInternal, getInternalContext } from '@/lib/internal-api';
+import {
+  tierAllows,
+  blockMode,
+  tierNotAllowedBody,
+  TierNotAllowedError,
+  FEATURE_MIN_TIER,
+  type TierFeature,
+} from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +44,30 @@ export async function POST(req: NextRequest) {
   // here too so a curl-savvy operator can't promote via the API.
   if (body.role === 'owner') {
     return NextResponse.json({ error: 'cannot_invite_owner' }, { status: 403 });
+  }
+
+  // SUBSCRIPTION_PLAN.md §5.3 — team_invitations Brokerage+ AND role-arg tier
+  // checks. Each gate is independent so a Team tenant trying to invite an
+  // admin gets one clear 402 from the more-restrictive check. In Phase 1
+  // (TIER_ENFORCEMENT_MODE='soft') the hard-mode pre-check is skipped and
+  // the backend (which mirrors the gates) is the source of truth.
+  const featureChecks: TierFeature[] = ['team_invitations'];
+  if (body.role === 'admin') featureChecks.push('role_admin');
+  else if (body.role === 'viewer') featureChecks.push('role_viewer');
+  else if (body.role === 'agent') featureChecks.push('role_agent');
+  for (const feature of featureChecks) {
+    if (!tierAllows(client, feature) && blockMode(feature) === 'hard') {
+      return NextResponse.json(
+        tierNotAllowedBody(
+          new TierNotAllowedError(
+            feature,
+            client.subscription_tier,
+            FEATURE_MIN_TIER[feature]
+          )
+        ),
+        { status: 402 }
+      );
+    }
   }
 
   const ctx = getInternalContext(client.id);
