@@ -156,10 +156,14 @@ export function isUnsupportedTier(err: unknown): err is TierNotAllowedError {
   );
 }
 
+// Enterprise was capped at 50 historically — the public pricing page sells
+// "unlimited agent seats" for this tier, so the cap is bumped to the same
+// 999 sentinel used by pilot + grandfather. Code now matches marketing.
+// Parity copy: anvira-backend/src/lib/tier-gates.ts must mirror this.
 export const TIER_MAX_AGENTS: Record<SubscriptionTier, number> = {
   pilot: 999,
   grandfather: 999,
-  enterprise: 50,
+  enterprise: 999,
   brokerage: 20,
   team: 5,
   suspended: 0,
