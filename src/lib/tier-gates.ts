@@ -9,6 +9,13 @@
 // PARITY CONSTRAINT: FEATURE_MIN_TIER MUST stay byte-identical to the backend.
 // The CI lint at anvira-admin-whatsapp/scripts/check-tier-gate-parity.ts
 // snapshots both and fails the build on drift.
+//
+// 2026-06-02: AML/KYC/sanctions/goAML moved from Enterprise → Brokerage per
+// Architect Brief §4 GTM-A (Decree-10 makes AML mandatory for the 6-20-agent
+// Brokerage ICP; charging extra for legally-required compliance is coercive).
+// Deep-CDD/risk-scoring/audit-pack/SAR-prep features added as dormant skeleton
+// gated to 'enterprise'. They will move to a future 'compliance_pro' tier
+// when pilots produce WTP signal.
 // ----------------------------------------------------------------------------
 
 export type SubscriptionTier =
@@ -33,7 +40,11 @@ export type TierFeature =
   | 'role_viewer'
   | 'team_invitations'
   | 'audit_log_read'
-  | 'sla_alerts';
+  | 'sla_alerts'
+  | 'deep_cdd_workflow'
+  | 'risk_scoring'
+  | 'audit_pack_export'
+  | 'sar_prep_tooling';
 
 export interface TierGateContext {
   id: string;
@@ -66,14 +77,20 @@ export const FEATURE_MIN_TIER: Record<TierFeature, SubscriptionTier> = {
   team_invitations: 'brokerage',
   role_agent: 'brokerage',
   audit_log_read: 'brokerage',
+  kyc_workflow: 'brokerage',
+  sanctions_screening: 'brokerage',
+  goaml_export: 'brokerage',
   // Enterprise
-  kyc_workflow: 'enterprise',
-  sanctions_screening: 'enterprise',
-  goaml_export: 'enterprise',
   custom_evolution_url: 'enterprise',
   sla_alerts: 'enterprise',
   role_admin: 'enterprise',
   role_viewer: 'enterprise',
+  // Compliance Pro (dormant skeleton — gated to 'enterprise' until the future
+  // 'compliance_pro' tier launches with pilot WTP signal)
+  deep_cdd_workflow: 'enterprise',
+  risk_scoring: 'enterprise',
+  audit_pack_export: 'enterprise',
+  sar_prep_tooling: 'enterprise',
 };
 
 const FEATURE_BLOCK_MODE: Record<TierFeature, 'hard' | 'soft'> = {
@@ -85,6 +102,10 @@ const FEATURE_BLOCK_MODE: Record<TierFeature, 'hard' | 'soft'> = {
   team_invitations: 'hard',
   role_admin: 'hard',
   role_viewer: 'hard',
+  deep_cdd_workflow: 'hard',
+  risk_scoring: 'hard',
+  audit_pack_export: 'hard',
+  sar_prep_tooling: 'hard',
   // Soft: revenue features. Better to over-deliver during pilot than break.
   payment_plan_pdf: 'soft',
   financing_router: 'soft',
