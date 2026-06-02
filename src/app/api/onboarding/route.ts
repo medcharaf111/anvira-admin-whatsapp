@@ -18,6 +18,16 @@ interface Body {
     | 'adgm'
     | 'ksa_mainland'
     | 'other';
+  // Slice 4 / Architect Brief §1.11 — License capture as a SOFT audit
+  // record. All three fields are optional (UI surfaces them only on the
+  // UAE-mainland flow, but a curl-savvy operator could send them on any
+  // jurisdiction — we accept and persist them either way; they only WARN,
+  // never block). Empty / whitespace strings are normalized to null below
+  // so license_captured_at + the audit row are armed only when at least
+  // one real value was supplied.
+  rera_permit_number?: string | null;
+  responsible_broker_name?: string | null;
+  trade_licence_number?: string | null;
 }
 
 // Mirror the client-side block so a curl-savvy operator can't bypass the
@@ -124,6 +134,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'slug_taken' }, { status: 409 });
   }
 
+  // Slice 4 / Architect Brief §1.11 — normalize the license inputs. Empty
+  // strings come from the form when the operator skipped a field; treat
+  // them as null so license_captured_at + the audit row only arm when at
+  // least one real value was supplied. This is a SOFT capture — the
+  // tenant is created either way; missing/expired values never block.
+  const rera = (body.rera_permit_number ?? '').trim() || null;
+  const broker = (body.responsible_broker_name ?? '').trim() || null;
+  const tradeLic = (body.trade_licence_number ?? '').trim() || null;
+  const anyLicenseFieldSupplied = rera !== null || broker !== null || tradeLic !== null;
+  const licenseCapturedAt = anyLicenseFieldSupplied ? new Date().toISOString() : null;
+  const dldStatus: 'pending' | null = anyLicenseFieldSupplied ? 'pending' : null;
+
   // Create the client. Anvira is a real-estate-brokerage-only product
   // post-pivot ([[anvira-realestate-pivot]] 2026-05-19) — every new
   // tenant gets client_type='real_estate' so the RE catalog, KYC/AML,
@@ -146,6 +168,16 @@ export async function POST(req: Request) {
       // consent flow on first contact instead of treating it as opt-in.
       consent_required: true,
       regulatory_jurisdiction: jurisdiction,
+      // Slice 4 / Architect Brief §1.11 — license capture as a SOFT audit
+      // record. The DLD soft-check status starts 'pending'; the periodic
+      // license-recheck cron (src/compliance/license-recheck-cron.ts on
+      // the backend) flips it to 'unchecked'/'valid'/'invalid'/'error'
+      // later. The bot NEVER blocks on this column.
+      rera_permit_number: rera,
+      responsible_broker_name: broker,
+      trade_licence_number: tradeLic,
+      license_captured_at: licenseCapturedAt,
+      dld_validity_check_status: dldStatus,
     })
     .select('id')
     .single();
@@ -235,6 +267,34 @@ export async function POST(req: Request) {
       console.error('[onboarding] tos audit log failed:', r.error.message);
     }
   });
+
+  // Slice 4 / Architect Brief §1.11 — License-capture audit row. Only fires
+  // when at least one license field was supplied. The DLD validity check is
+  // deliberately NOT called here at onboarding time — that's the periodic
+  // license-recheck cron's job (src/compliance/license-recheck-cron.ts on
+  // the backend). At onboarding we only persist + audit, so the form stays
+  // snappy and an unwired DLD API can't degrade the signup UX.
+  if (anyLicenseFieldSupplied) {
+    void svc.from('audit_log').insert({
+      client_id: client.id,
+      actor_user_id: user.id,
+      actor_email: user.email ?? null,
+      actor_ip: actorIp,
+      action: 'onboarding.license.captured',
+      target_type: 'dashboard_clients',
+      target_id: client.id,
+      details: {
+        rera_permit_number: rera,
+        responsible_broker_name: broker,
+        trade_licence_number: tradeLic,
+        captured_at: licenseCapturedAt,
+      },
+    }).then((r) => {
+      if (r.error) {
+        console.error('[onboarding] license audit log failed:', r.error.message);
+      }
+    });
+  }
 
   return NextResponse.json({ ok: true, clientId: client.id });
 }

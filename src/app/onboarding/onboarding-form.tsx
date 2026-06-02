@@ -84,6 +84,14 @@ export function OnboardingForm() {
   // 'onboarding.tos_accepted') so the consent is timestamped and tied
   // to the actor user, which is what a regulator would ask for.
   const [acceptedTos, setAcceptedTos] = useState(false);
+  // Slice 4 / Architect Brief §1.11 — license capture as an AUDIT RECORD.
+  // SOFT: only the UAE-mainland real-estate flow surfaces these inputs, and
+  // even there they are non-blocking (empty submit still creates the tenant).
+  // KSA / DIFC / ADGM / 'other' never reach the create-tenant branch so
+  // they don't see these inputs at all.
+  const [reraPermitNumber, setReraPermitNumber] = useState('');
+  const [responsibleBrokerName, setResponsibleBrokerName] = useState('');
+  const [tradeLicenceNumber, setTradeLicenceNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,6 +142,13 @@ export function OnboardingForm() {
           // Per legal-posture addendum — server logs this as an
           // audit_log row tied to the actor user + IP.
           tos_accepted_at: new Date().toISOString(),
+          // Slice 4 / Architect Brief §1.11 — license capture as a SOFT
+          // audit record. Empty strings sent through as null so the server
+          // can decide whether to arm license_captured_at + the
+          // 'onboarding.license.captured' audit row.
+          rera_permit_number: reraPermitNumber.trim() || null,
+          responsible_broker_name: responsibleBrokerName.trim() || null,
+          trade_licence_number: tradeLicenceNumber.trim() || null,
         }),
       });
       const json = await res.json();
@@ -321,6 +336,69 @@ export function OnboardingForm() {
             : 'KSA — REGA / SAFIU. v1 من Anvira لا تدعمها بعد.'}
         </p>
       </div>
+
+      {/* Slice 4 / Architect Brief §1.11 — License capture (SOFT audit record).
+          Only visible on the UAE-mainland flow (the only flow that provisions
+          a real tenant). Fields are NON-BLOCKING: empty submit is allowed.
+          The server stores whatever is provided as an audit record, never as
+          an enforcement gate. */}
+      {country === 'UAE' && jurisdiction === 'uae_mainland' && (
+        <div className="space-y-3">
+          <div>
+            <label className="field-label">رقم تسجيل المكتب (ORN)</label>
+            <input
+              type="text"
+              value={reraPermitNumber}
+              onChange={(e) => setReraPermitNumber(e.target.value)}
+              placeholder="12345"
+              dir="ltr"
+              maxLength={32}
+              className="input-boxed text-left"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            />
+          </div>
+
+          <div>
+            <label className="field-label">اسم الوسيط المسؤول</label>
+            <input
+              type="text"
+              value={responsibleBrokerName}
+              onChange={(e) => setResponsibleBrokerName(e.target.value)}
+              placeholder="محمد أحمد"
+              maxLength={120}
+              className="input-boxed"
+            />
+          </div>
+
+          <div>
+            <label className="field-label">رقم الرخصة التجارية (BLN)</label>
+            <input
+              type="text"
+              value={tradeLicenceNumber}
+              onChange={(e) => setTradeLicenceNumber(e.target.value)}
+              placeholder="1234567"
+              dir="ltr"
+              maxLength={32}
+              className="input-boxed text-left"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            />
+          </div>
+
+          <p
+            className="text-[10px] leading-relaxed p-2"
+            style={{
+              color: 'var(--ink-faint)',
+              background: 'var(--paper-sink)',
+              border: '1px dashed var(--rule)',
+              borderRadius: '3px',
+            }}
+            dir="rtl"
+          >
+            هذه المعلومات للتدقيق فقط — لا نتحقّق منها تلقائياً عبر دائرة الأراضي حالياً.
+            ستبقى الخدمة فعّالة حتى مع رقم منتهي الصلاحية، لكن سيُسجَّل التحذير.
+          </p>
+        </div>
+      )}
 
       {/* ToS / Privacy acceptance gate. Workflow-assistance framing —
           uses "I agree to terms" not "I agree to be compliant", which
