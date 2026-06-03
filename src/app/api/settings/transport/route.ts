@@ -13,12 +13,15 @@ const ALLOWED: ReadonlySet<string> = new Set(['cloud_api', 'evolution']);
  *
  * Phase-B pilot guardrails:
  *   1. Real-estate clients only.
- *   2. We refuse to switch while there are active conversations
- *      (bot_paused=false AND last activity within 30 days) — moving
- *      transport mid-conversation would orphan threads. Operators are
- *      instructed to drain or migrate via support.
- *   3. 'mock' is NOT settable from the UI — that flag is reserved for
+ *   2. 'mock' is NOT settable from the UI — that flag is reserved for
  *      sandbox/dev seeds.
+ *   3. SOFT operator-trust on the active-conversation gate (relaxed
+ *      2026-06-03 after the gate trapped post-unlink operators trying
+ *      to re-pair). We still COUNT active conversations and persist
+ *      the count in the audit row so we can forensically reconstruct
+ *      what got orphaned; we don't refuse the switch. Matches the
+ *      operator-trust posture of the unlink modal (which warns about
+ *      active conversations but lets the operator proceed).
  *
  * Body: `{ transport: 'evolution' | 'cloud_api' }`.
  */
@@ -48,33 +51,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, unchanged: true });
   }
 
-  // Active-conversation gate. We define "active" as conversations the
-  // bot is still actively serving (bot_paused=false) AND that saw
-  // inbound/outbound traffic in the last 30 days. Anything older is
-  // assumed dormant and safe to leave behind.
+  // Count active conversations for the audit trail (NOT for blocking —
+  // see route docstring). "Active" = bot still actively serving
+  // (bot_paused=false) AND inbound/outbound traffic in the last 30 days.
+  // The count gets stamped into the transport-change audit row so a
+  // future incident review can correlate "broker switched transport ⇒
+  // these N threads went silent on the old channel".
   const svc = createServiceClient();
   const thirtyDaysAgo = new Date(
     Date.now() - 30 * 24 * 60 * 60 * 1000
   ).toISOString();
-  const { count, error: countErr } = await svc
+  const { count: activeCount } = await svc
     .from('conversations')
     .select('id', { count: 'exact', head: true })
     .eq('client_id', client.id)
     .eq('bot_paused', false)
     .gte('last_message_at', thirtyDaysAgo);
-
-  if (countErr) {
-    return NextResponse.json(
-      { error: 'conversation_check_failed' },
-      { status: 500 }
-    );
-  }
-  if ((count ?? 0) > 0) {
-    return NextResponse.json(
-      { error: 'active_conversations', count: count ?? 0 },
-      { status: 409 }
-    );
-  }
 
   const { error } = await svc
     .from('dashboard_clients')
@@ -101,7 +93,14 @@ export async function POST(req: NextRequest) {
     action: 'transport.update',
     targetType: 'dashboard_clients',
     targetId: client.id,
-    details: { from: client.transport, to: transport },
+    details: {
+      from: client.transport,
+      to: transport,
+      // Captured for forensic correlation: how many active threads were
+      // on the OLD transport at the moment of switch. Not a block — see
+      // route docstring. null when the count query itself failed.
+      active_conversations_at_switch: activeCount ?? null,
+    },
   });
 
   return NextResponse.json({ ok: true });

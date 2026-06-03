@@ -587,18 +587,20 @@ function SwitchToEvolutionCta({
   hasActiveConvs: boolean;
   onClick: () => void;
 }) {
-  const disabled = busy || hasActiveConvs;
+  // SOFT-warn pattern (2026-06-03): the hard-block "contact support" UX
+  // trapped post-unlink operators — after they deliberately killed the
+  // Evolution instance + transport reverted to cloud_api, this CTA is
+  // their ONLY way back to Evolution, and hasActiveConvs is true by
+  // construction (the conversations from before the unlink are still on
+  // file). Same operator-trust posture as the unlink modal itself:
+  // surface the count as a warning, let the operator proceed.
+  const disabled = busy;
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <button
         type="button"
         onClick={onClick}
         disabled={disabled}
-        title={
-          hasActiveConvs
-            ? 'لا يمكن التبديل مع وجود محادثات نشطة — تواصل مع الدعم'
-            : undefined
-        }
         className="inline-flex items-center justify-center gap-2 h-10 px-5 text-[13px] font-medium transition-all"
         style={{
           background: disabled ? 'var(--paper-sink)' : 'var(--ink)',
@@ -623,7 +625,7 @@ function SwitchToEvolutionCta({
           dir="rtl"
         >
           <AlertCircle className="w-3 h-3" />
-          <span>محادثات نشطة موجودة — راجع الدعم</span>
+          <span>محادثات نشطة ستنتقل للقناة الجديدة بعد إقران الرقم</span>
         </span>
       )}
     </div>
