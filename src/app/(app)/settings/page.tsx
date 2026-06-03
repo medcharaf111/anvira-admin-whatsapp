@@ -63,6 +63,7 @@ export default async function SettingsPage() {
           <WhatsAppTransportPanel
             transport={client.transport}
             evolutionInstance={client.evolution_instance}
+            clientId={client.id}
           />
           {/* Branch numbers comes before LeadSourcesPanel — adding more
               WhatsApp numbers is a more foundational decision than

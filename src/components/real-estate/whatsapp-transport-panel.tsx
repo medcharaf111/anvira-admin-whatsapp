@@ -11,13 +11,19 @@ import {
   ShieldCheck,
   AlertCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import type { Transport } from '@/lib/client';
 import { QrScanModal } from './qr-scan-modal';
 import { EvolutionInstancePanel } from './evolution-instance-panel';
+import { UnlinkNumberModal } from '@/components/settings/unlink-number-modal';
 
 interface WhatsAppTransportPanelProps {
   transport: Transport;
   evolutionInstance: string | null;
+  /** Tenant id — passed through to the unlink modal for future
+   *  analytics/audit hooks. The server-side unlink route resolves
+   *  identity from the session cookie, not this prop. */
+  clientId: string;
 }
 
 interface BranchNumber {
@@ -97,15 +103,26 @@ const TRANSPORT_META: Record<Transport, TransportMeta> = {
 export function WhatsAppTransportPanel({
   transport,
   evolutionInstance,
+  clientId,
 }: WhatsAppTransportPanelProps) {
   const router = useRouter();
   const [primaryNumberId, setPrimaryNumberId] = useState<string | null>(null);
+  const [primaryWaNumber, setPrimaryWaNumber] = useState<string | null>(null);
   const [activeConvCount, setActiveConvCount] = useState<number | null>(null);
   const [numbersLoading, setNumbersLoading] = useState(true);
   const [switchBusy, setSwitchBusy] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [resumeInstance, setResumeInstance] = useState<string | null>(null);
   const [instanceRefreshKey, setInstanceRefreshKey] = useState(0);
+  // Unlink modal state — local optimistic flag flips on success so the
+  // panel collapses to "no linked number" before router.refresh() lands
+  // the authoritative empty state from the server.
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const [unlinkActiveCount, setUnlinkActiveCount] = useState<number | null>(
+    null
+  );
+  const [optimisticallyUnlinked, setOptimisticallyUnlinked] =
+    useState(false);
 
   const fetchSidecars = useCallback(async () => {
     try {
@@ -115,7 +132,9 @@ export function WhatsAppTransportPanel({
       if (bnRes.ok) {
         const json = (await bnRes.json()) as BranchNumbersResponse;
         const primary = json.numbers?.find((n) => n.is_primary);
-        setPrimaryNumberId(primary?.id ?? json.numbers?.[0]?.id ?? null);
+        const chosen = primary ?? json.numbers?.[0];
+        setPrimaryNumberId(chosen?.id ?? null);
+        setPrimaryWaNumber(chosen?.wa_number ?? null);
       }
     } catch {
       // tolerate transient failures — the panel still renders
@@ -123,6 +142,42 @@ export function WhatsAppTransportPanel({
       setNumbersLoading(false);
     }
   }, []);
+
+  // Lazy-fetch the 7-day active-conversation count when the unlink
+  // modal opens. We don't preload on mount because most operators never
+  // open this destructive surface, and the count is only meaningful in
+  // the unlink decision context.
+  async function openUnlinkModal() {
+    setUnlinkActiveCount(null);
+    setUnlinkOpen(true);
+    if (!primaryWaNumber) return;
+    try {
+      const res = await fetch(
+        `/api/settings/evolution/active-count?wa_number=${encodeURIComponent(
+          primaryWaNumber
+        )}`,
+        { cache: 'no-store' }
+      );
+      if (res.ok) {
+        const json = (await res.json()) as { count?: number };
+        setUnlinkActiveCount(Number(json.count ?? 0));
+      } else {
+        // Keep null → modal renders "—" so the operator knows we don't
+        // have a confident number rather than seeing a misleading 0.
+        setUnlinkActiveCount(null);
+      }
+    } catch {
+      setUnlinkActiveCount(null);
+    }
+  }
+
+  function onUnlinkSuccess() {
+    setUnlinkOpen(false);
+    setOptimisticallyUnlinked(true);
+    // Re-render server components so getCurrentClient picks up the
+    // newly cleared evolution_instance + reverted transport.
+    router.refresh();
+  }
 
   useEffect(() => {
     void fetchSidecars();
@@ -176,12 +231,22 @@ export function WhatsAppTransportPanel({
   const meta = TRANSPORT_META[transport];
   const TransportIcon = meta.Icon;
 
-  // Decide which CTA to render under the helper text.
+  // Decide which CTA to render under the helper text. The optimistic
+  // unlink flag forces the panel to behave as if the instance has been
+  // detached even before router.refresh() resolves — preventing the
+  // operator from seeing the live instance panel for the brief window
+  // between the success callback and the server re-render.
   const showSwitchToEvolution = transport === 'cloud_api';
   const showCreateEvolution =
-    transport === 'evolution' && !evolutionInstance;
+    transport === 'evolution' &&
+    (!evolutionInstance || optimisticallyUnlinked);
   const showInstancePanel =
-    transport === 'evolution' && !!evolutionInstance;
+    transport === 'evolution' &&
+    !!evolutionInstance &&
+    !optimisticallyUnlinked;
+  // Show the destructive section only when there's something to
+  // disconnect AND we know which wa_number to target.
+  const showUnlinkSection = showInstancePanel && !!primaryWaNumber;
 
   return (
     <section className="mt-12">
@@ -343,10 +408,97 @@ export function WhatsAppTransportPanel({
                   onResumeScan={openQrResume}
                   refreshKey={instanceRefreshKey}
                 />
+
+                {/* Unlink section — a deliberate secondary surface kept
+                  * BELOW the live instance panel so it never competes
+                  * with the day-to-day operational chrome (warmup bar,
+                  * connection dot, logout link). Only renders when we
+                  * have a wa_number to target. */}
+                {showUnlinkSection && (
+                  <div
+                    className="mt-5 px-5 py-4"
+                    style={{
+                      background: 'var(--paper-sink)',
+                      border: '1px solid var(--rule-soft)',
+                      borderRadius: '3px',
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <h4
+                          className="text-sm font-medium mb-1"
+                          style={{ color: 'var(--ink)' }}
+                          dir="rtl"
+                        >
+                          إلغاء الربط
+                        </h4>
+                        <p
+                          className="text-[12px] leading-relaxed"
+                          style={{ color: 'var(--ink-soft)' }}
+                          dir="rtl"
+                        >
+                          إذا أردت تغيير الرقم أو إيقاف الخدمة على هذا الرقم
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void openUnlinkModal()}
+                        className="inline-flex items-center justify-center h-9 px-4 text-xs"
+                        style={{
+                          background: 'transparent',
+                          color: 'var(--signal)',
+                          border:
+                            '1px solid color-mix(in srgb, var(--signal) 35%, var(--rule))',
+                          borderRadius: '3px',
+                          cursor: 'pointer',
+                          transition: 'background 0.18s ease',
+                        }}
+                      >
+                        إلغاء الربط
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Collapsed post-unlink state — shown when the operator just
+          * detached the only number OR when the tenant arrives on
+          * Evolution with no provisioned instance yet. Provides a clear
+          * recovery path to onboarding so they aren't left wondering
+          * where to re-link. */}
+        {transport === 'evolution' &&
+          (optimisticallyUnlinked || !evolutionInstance) && (
+            <div
+              className="mx-5 md:mx-7 mb-6 px-4 py-3"
+              style={{
+                background: 'var(--paper-sink)',
+                borderRadius: '3px',
+                border: '1px solid var(--rule-soft)',
+              }}
+            >
+              <p
+                className="text-[13px] leading-relaxed"
+                style={{ color: 'var(--ink-soft)' }}
+                dir="rtl"
+              >
+                لا يوجد رقم مرتبط.{' '}
+                <Link
+                  href="/onboarding/whatsapp"
+                  style={{
+                    color: 'var(--primary-glow)',
+                    textDecoration: 'underline',
+                    textUnderlineOffset: '2px',
+                  }}
+                >
+                  اربط رقماً جديداً من شاشة الإعداد
+                </Link>
+                .
+              </p>
+            </div>
+          )}
       </motion.div>
 
       {/* Below-card hint */}
@@ -366,6 +518,19 @@ export function WhatsAppTransportPanel({
         numberId={primaryNumberId}
         resumeInstance={resumeInstance}
         onConnected={onConnected}
+      />
+
+      {/* Unlink confirmation surface — mounted at the section level so
+        * it overlays the entire viewport regardless of which sub-panel
+        * triggered it. Defensive `??` keeps the modal's RTL render
+        * stable even if primaryWaNumber lookup raced the open. */}
+      <UnlinkNumberModal
+        open={unlinkOpen}
+        onClose={() => setUnlinkOpen(false)}
+        onSuccess={onUnlinkSuccess}
+        waNumber={primaryWaNumber ?? ''}
+        activeCount={unlinkActiveCount}
+        clientId={clientId}
       />
     </section>
   );
