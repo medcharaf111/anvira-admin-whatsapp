@@ -50,25 +50,25 @@ interface TransportMeta {
 
 const TRANSPORT_META: Record<Transport, TransportMeta> = {
   cloud_api: {
-    pillLabel: 'META CLOUD API',
+    pillLabel: 'META WABA · قريباً',
     pillBg: 'color-mix(in srgb, var(--warn) 18%, var(--paper-lift))',
     pillFg: 'var(--warn)',
     pillBorder: 'color-mix(in srgb, var(--warn) 35%, transparent)',
     helperAr:
-      'Meta WhatsApp Business API · للحسابات المعتمدة من Meta. مدّة التركيب ١–٣ أسابيع لمراجعة Meta.',
+      'WhatsApp Business API الرسمي من Meta · متاح لاحقاً، يتطلّب اعتماد حساب أعمال Meta. سنُعلِمك عند جاهزيّته.',
     helperEn:
-      'Official WABA — broadcast-grade reach, requires Meta review (1–3 weeks).',
+      'Official Meta WhatsApp Business API — coming later. Requires a Meta-approved business account; we’ll notify you when it’s available.',
     Icon: ShieldCheck,
   },
   evolution: {
-    pillLabel: 'EVOLUTION',
+    pillLabel: 'ربط مباشر · جاهز فوراً',
     pillBg: 'color-mix(in srgb, var(--primary-glow) 18%, var(--paper-lift))',
     pillFg: 'var(--primary-glow)',
     pillBorder: 'color-mix(in srgb, var(--primary-glow) 35%, transparent)',
     helperAr:
-      'Evolution self-hosted · QR scan من جوّالك. جاهز في دقائق ومتوافق مع PDPL، يمكن استضافته داخل المنطقة.',
+      'ربط رقم واتساب مباشرةً عبر مسح QR من جوّالك. جاهز خلال دقائق ومتوافق مع PDPL.',
     helperEn:
-      'Self-hosted Baileys bridge — minutes to onboard, in-region hosting available.',
+      'Pair your WhatsApp number directly by scanning a QR from your phone — ready in minutes, PDPL-aware.',
     Icon: PlugZap,
   },
   mock: {
@@ -359,7 +359,7 @@ export function WhatsAppTransportPanel({
                 ) : (
                   <PlugZap className="w-3.5 h-3.5" />
                 )}
-                <span>إنشاء اتصال Evolution</span>
+                <span>ربط رقم واتساب</span>
               </button>
             )}
 
@@ -508,8 +508,9 @@ export function WhatsAppTransportPanel({
         dir="rtl"
       >
         وسيلة الاتصال أساس كل شيء — تتحكّم في كيفية وصول الرسائل لعملائك،
-        السرعة المسموح بها، والتزامن مع PDPL. ابدأ بـ Evolution إذا أردت
-        الإطلاق خلال دقائق، أو Cloud API للحجم الكامل بعد المراجعة.
+        السرعة المسموح بها، والتزامن مع PDPL. ابدأ بالربط المباشر إذا أردت
+        الإطلاق خلال دقائق، وانتقل إلى Meta WABA لاحقاً للحجم الكامل بعد
+        اعتماد حسابك.
       </p>
 
       <QrScanModal
@@ -570,8 +571,8 @@ function SectionHeader() {
           style={{ color: 'var(--ink-soft)' }}
           dir="rtl"
         >
-          اختر كيف يتصل البوت بواتساب — Meta Cloud API الرسمي، أو Evolution
-          self-hosted للإطلاق السريع.
+          اختر كيف يتصل البوت بواتساب — Meta WABA الرسمي (قريباً)، أو
+          الربط المباشر للإطلاق الفوري.
         </p>
       </div>
     </div>
@@ -616,7 +617,7 @@ function SwitchToEvolutionCta({
         ) : (
           <ArrowRightLeft className="w-3.5 h-3.5" />
         )}
-        <span>تبديل إلى Evolution</span>
+        <span>تفعيل الربط المباشر</span>
       </button>
       {hasActiveConvs && (
         <span

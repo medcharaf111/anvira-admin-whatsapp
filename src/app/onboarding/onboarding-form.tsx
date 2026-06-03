@@ -183,7 +183,7 @@ export function OnboardingForm() {
           type="text"
           value={slug}
           onChange={(e) => setSlug(slugify(e.target.value))}
-          placeholder="amal-clinic"
+          placeholder="marina-realty"
           required
           dir="ltr"
           className="input-boxed text-left"

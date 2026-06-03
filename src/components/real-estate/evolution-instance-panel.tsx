@@ -558,7 +558,7 @@ export function EvolutionInstancePanel({
                     style={{ color: 'var(--ink)' }}
                     dir="rtl"
                   >
-                    تسجيل الخروج من Evolution؟
+                    قطع اتصال الجهاز بواتساب؟
                   </h3>
                   <p
                     className="text-[12px] mt-1.5 leading-relaxed"

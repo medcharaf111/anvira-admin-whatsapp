@@ -208,7 +208,7 @@ function NewClientModal({ onClose }: { onClose: () => void }) {
               <input
                 value={slug}
                 onChange={(e) => setSlug(e.target.value.toLowerCase())}
-                placeholder="al-amal-clinic"
+                placeholder="al-marina-realty"
                 dir="ltr"
                 className="input-boxed text-left w-full"
                 style={{ fontFamily: 'var(--font-mono)' }}

@@ -409,7 +409,7 @@ export function QrScanModal({
                   style={{ color: 'var(--ink)' }}
                   dir="rtl"
                 >
-                  ربط واتساب عبر Evolution
+                  ربط رقم واتساب
                 </h2>
                 <p
                   className="text-[10px] tracking-widest uppercase mt-1"
@@ -419,7 +419,7 @@ export function QrScanModal({
                   }}
                   dir="ltr"
                 >
-                  Evolution · QR Pairing
+                  QR · امسح من جوّالك
                 </p>
               </div>
             </div>
@@ -457,7 +457,7 @@ export function QrScanModal({
                       className="text-sm font-medium"
                       style={{ color: 'var(--ink)' }}
                     >
-                      إقرار مخاطر ربط واتساب غير الرسمي
+                      إقرار مخاطر الربط المباشر بواتساب
                     </h3>
                   </div>
                   <p
@@ -510,7 +510,7 @@ export function QrScanModal({
                     style={{ color: 'var(--ink-soft)' }}
                     dir="rtl"
                   >
-                    جارٍ إنشاء جلسة Evolution…
+                    جارٍ تهيئة الاتصال…
                   </p>
                 </motion.div>
               )}
