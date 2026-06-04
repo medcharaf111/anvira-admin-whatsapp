@@ -55,12 +55,23 @@ export async function callInternal(
       },
       cache: 'no-store',
     });
-    // 404 from the backend means "this internal endpoint hasn't been
-    // deployed yet" (Wave-3 migrations not run). Treat as the same
-    // soft-failure as "not configured" so the admin UI can show a
-    // helpful empty state.
-    if (res.status === 404) return { provisioned: false };
+    // Parse the body ONCE up front so the 404 disambiguation below can
+    // inspect it. We must distinguish:
+    //   - Bare 404 with no JSON body (or no `error` field) → the internal
+    //     endpoint hasn't been deployed yet (Wave-3 migrations not run, or
+    //     Express's default not-found handler). Degrade to provisioned:false
+    //     so the admin UI can show a helpful empty state.
+    //   - 404 with `{ error: "..." }` → real not-found surfaced by the
+    //     backend (e.g. evolution_instance_not_found). Bubble up so the
+    //     admin route can show the real error code.
+    // Backend currently uses 422 for state-not-found (post-incident
+    // 2026-06-04), so this branch is the bug-belt: if any future internal
+    // endpoint regresses to 404, the admin layer no longer silently
+    // swallows it as "not provisioned".
     const json = await res.json().catch(() => null);
+    const hasErrorBody =
+      json != null && typeof json === 'object' && 'error' in (json as object);
+    if (res.status === 404 && !hasErrorBody) return { provisioned: false };
     return { provisioned: true, status: res.status, ok: res.ok, json };
   } catch {
     return { provisioned: false };
