@@ -17,6 +17,19 @@ type Phase =
   | 'ack'
   | 'creating'
   | 'qr_pending'
+  // NEW (Fix 3) — Evolution reported `state=open` within
+  // STALE_THRESHOLD_MS of QR display, which means Baileys auto-resumed
+  // a previously-paired device rather than completing a fresh handshake.
+  // We pause here to make the operator confirm this is the right number
+  // (it usually is, but a stale device hijack would silently bind the
+  // wrong WhatsApp account).
+  | 'stale_confirm'
+  // NEW (Fix 2 admin half) — pair succeeded, now backfilling the DB
+  // (instance + token + connected status + audit row) via
+  // /api/settings/evolution/sync-after-pair. Brief but blocking so the
+  // operator doesn't see a phantom "connected" state before the bot can
+  // actually reply.
+  | 'syncing'
   | 'connected'
   | 'expired'
   | 'error';
@@ -44,6 +57,16 @@ interface QrScanModalProps {
   /** Primary branch_number row id to bind the new Evolution instance to. */
   numberId: string | null;
   /**
+   * The whatsapp:+E164 (or +E164) number being paired. Passed to
+   * /api/settings/evolution/sync-after-pair so the backend can
+   * re-derive the expected instance slug and verify ownerJid against
+   * this number. Optional only because the parent may not have it
+   * resolved yet on mount — if it's null when `state=open` arrives,
+   * sync is skipped and we fall back to the legacy "rely on next
+   * outbound resolve" behaviour (degrades cleanly, no broken flow).
+   */
+  waNumber?: string | null;
+  /**
    * Optional pre-existing instance to resume scanning for. Skips the
    * creation step and jumps straight to QR display. Used by the
    * "Resume scan" CTA on the instance panel when the previous session
@@ -62,6 +85,14 @@ const SUCCESS_HOLD_MS = 2_000;
 // Item 16 — minimum dwell on the ban-risk disclosure before the operator can
 // proceed. Forces a real read, not a reflexive click-through.
 const ACK_ENABLE_SEC = 20;
+// Fix 3 — stale-device detection threshold. Baileys auto-resume from a
+// still-linked device returns `state=open` within ~200-800ms in field
+// traces, whereas a fresh QR scan + WhatsApp handshake takes 3-8s.
+// 2000ms sits comfortably in the gap. Configurable via the public env
+// var for ops tuning without a code redeploy.
+const STALE_THRESHOLD_MS = Number(
+  process.env.NEXT_PUBLIC_QR_STALE_THRESHOLD_MS ?? 2_000
+);
 
 /**
  * QR scan modal — the pilot's onboarding heart.
@@ -79,6 +110,7 @@ export function QrScanModal({
   open,
   onClose,
   numberId,
+  waNumber = null,
   resumeInstance = null,
   onConnected,
 }: QrScanModalProps) {
@@ -87,6 +119,11 @@ export function QrScanModal({
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [remainingMs, setRemainingMs] = useState<number>(SCAN_BUDGET_MS);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Fix 3 — timestamp the moment `state=open` could possibly arrive
+  // (i.e. when we first display the QR or hand off to resume). We can't
+  // rely on `phase === 'qr_pending'` alone because state setters are
+  // async; an explicit ref pegs the wall-clock instant.
+  const qrDisplayedAtRef = useRef<number | null>(null);
 
   // Item 16 — ban-risk acknowledgement gate. Before provisioning a fresh
   // instance the operator must affirm the unofficial-WhatsApp ban-risk
@@ -123,7 +160,64 @@ export function QrScanModal({
     setAckText(null);
     setAckChecked(false);
     setAckRemainingSec(ACK_ENABLE_SEC);
+    qrDisplayedAtRef.current = null;
   }, [stopAllTimers]);
+
+  // Fix 2 admin half — backfill the DB row (instance + token + status)
+  // after Evolution reports the pair as live. Defined as a callback
+  // because it's invoked from two places (the normal slow-path
+  // `connected` branch and the `stale_confirm` accept path).
+  const runPostPairSync = useCallback(
+    async (instanceName: string) => {
+      setPhase('syncing');
+      // If the parent didn't pass a wa_number (legacy callsite or race),
+      // skip the sync and behave the way the modal did before this fix —
+      // the next outbound resolve will eventually pick up the instance
+      // via the resolver cache TTL. We do NOT block the success UX on a
+      // missing prop; the operator paired successfully.
+      if (!waNumber) {
+        setPhase('connected');
+        onConnected?.(instanceName);
+        setTimeout(() => onClose(), SUCCESS_HOLD_MS);
+        return;
+      }
+      try {
+        const res = await fetch('/api/settings/evolution/sync-after-pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            instance_name: instanceName,
+            wa_number: waNumber,
+          }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            detail?: string;
+          };
+          // Surface the most specific signal we have. Backend distinguishes
+          // `owner_jid_mismatch`, `instance_name_mismatch`,
+          // `evolution_token_missing_from_fetchInstances`, etc — relay
+          // verbatim so the operator can take an informed retry path.
+          setErrorMsg(body.detail ?? body.error ?? `sync_${res.status}`);
+          setPhase('error');
+          return;
+        }
+        setPhase('connected');
+        onConnected?.(instanceName);
+        setTimeout(() => onClose(), SUCCESS_HOLD_MS);
+      } catch {
+        // Network failure after a successful pair is recoverable —
+        // the operator can retry sync via the next QR open, and the
+        // resolver cache will eventually pick up the orphan token
+        // anyway. Show an actionable error rather than pretending
+        // everything's fine.
+        setErrorMsg('sync_network_error');
+        setPhase('error');
+      }
+    },
+    [waNumber, onConnected, onClose]
+  );
 
   // Polling — runs only while `phase === 'qr_pending'`. We pass the
   // instance explicitly because state setters are async and we'd
@@ -157,19 +251,32 @@ export function QrScanModal({
           const json = (await res.json()) as StateResponse;
           if (json.state === 'connected') {
             stopAllTimers();
-            setPhase('connected');
-            onConnected?.(instanceName);
-            // Auto-close after a short celebration hold.
-            setTimeout(() => {
-              onClose();
-            }, SUCCESS_HOLD_MS);
+            // Fix 3 — distinguish a fresh-scan handshake from a Baileys
+            // auto-resume of a stale-but-still-linked device. If the
+            // `state=open` arrives suspiciously fast (< STALE_THRESHOLD_MS
+            // after the QR became visible), the device almost certainly
+            // didn't get scanned — it just reconnected from its cached
+            // session. Pause for operator confirmation before binding
+            // (and before the sync write) so we don't silently attach
+            // the wrong WhatsApp account.
+            const qrAt = qrDisplayedAtRef.current;
+            const elapsedSinceQr =
+              qrAt === null ? Number.POSITIVE_INFINITY : Date.now() - qrAt;
+            if (elapsedSinceQr < STALE_THRESHOLD_MS) {
+              setPhase('stale_confirm');
+              return;
+            }
+            // Fresh handshake — proceed straight into the DB backfill,
+            // then on to the success view + auto-close. runPostPairSync
+            // owns the phase transitions from here.
+            void runPostPairSync(instanceName);
           }
         } catch {
           // Network blip — keep polling, the next tick will recover.
         }
       }, POLL_INTERVAL_MS);
     },
-    [onClose, onConnected, stopAllTimers]
+    [runPostPairSync, stopAllTimers]
   );
 
   // Provisioning step — POST /api/evolution/instances and flip to
@@ -274,6 +381,45 @@ export function QrScanModal({
     }
   }, [ackText, numberId, createInstance]);
 
+  // Fix 3 — stale-confirm "نعم — تابع": operator vouched that the
+  // auto-resumed session is the correct number, so proceed with the
+  // DB backfill exactly the way a fresh handshake would.
+  const onStaleConfirmYes = useCallback(() => {
+    if (!instance) {
+      setErrorMsg('missing_instance_after_stale');
+      setPhase('error');
+      return;
+    }
+    void runPostPairSync(instance);
+  }, [instance, runPostPairSync]);
+
+  // Fix 3 — stale-confirm "إلغاء — أعد المحاولة": operator wants to
+  // re-pair from scratch. Best-effort unlink to free the auto-resumed
+  // session on Evolution's side, then re-provision (which yields a
+  // fresh QR). Swallow the unlink failure — worst case is an orphan
+  // instance, which idempotency in the backend handles cleanly on the
+  // next attempt.
+  const onStaleConfirmCancel = useCallback(async () => {
+    if (waNumber) {
+      try {
+        await fetch('/api/settings/evolution/unlink', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wa_number: waNumber }),
+        });
+      } catch {
+        // Best-effort — see comment above.
+      }
+    }
+    // Reset transient state and kick off a brand-new provision; this
+    // routes back through `creating` → `qr_pending`, including a fresh
+    // qrDisplayedAt timestamp so a subsequent rapid `state=open` will
+    // be detected as stale again (and we'll re-loop) rather than
+    // silently binding the wrong number.
+    resetTransient();
+    void createInstance();
+  }, [waNumber, resetTransient, createInstance]);
+
   // Open transition — either resume an existing instance (skip
   // provisioning) or create a fresh one.
   useEffect(() => {
@@ -306,6 +452,18 @@ export function QrScanModal({
     };
   }, [stopAllTimers]);
 
+  // Fix 3 — peg the QR-displayed-at timestamp whenever we enter the
+  // qr_pending phase, and clear it when we leave (unless we leave for
+  // the stale_confirm sub-step, which still needs the original
+  // timestamp for diagnostic logging if we surface it later).
+  useEffect(() => {
+    if (phase === 'qr_pending') {
+      qrDisplayedAtRef.current = Date.now();
+    } else if (phase !== 'stale_confirm') {
+      qrDisplayedAtRef.current = null;
+    }
+  }, [phase]);
+
   // Periodically refresh the QR <img> so we pick up backend rotations
   // without forcing the operator to refresh. ~25s cadence keeps under
   // the 60s expiry, but doesn't hammer the proxy.
@@ -321,12 +479,21 @@ export function QrScanModal({
     return () => clearInterval(id);
   }, [phase, instance]);
 
-  // Esc to close — but only when we're not mid-success (don't yank
-  // the confirmation away from the operator).
+  // Esc to close — but only when we're not mid-success, mid-sync, or
+  // mid-stale-confirm. Yanking the modal during `syncing` would orphan
+  // the Evolution session vs the DB row; during `stale_confirm` it
+  // would swallow the operator's confirmation decision.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && phase !== 'connected') onClose();
+      if (
+        e.key === 'Escape' &&
+        phase !== 'connected' &&
+        phase !== 'syncing' &&
+        phase !== 'stale_confirm'
+      ) {
+        onClose();
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -358,8 +525,14 @@ export function QrScanModal({
           WebkitBackdropFilter: 'blur(6px)',
         }}
         onClick={(e) => {
-          // Click-out closes — unless we're mid-success.
-          if (e.target === e.currentTarget && phase !== 'connected') {
+          // Click-out closes — unless we're mid-success, mid-sync, or
+          // mid-stale-confirm (see Esc handler above for rationale).
+          if (
+            e.target === e.currentTarget &&
+            phase !== 'connected' &&
+            phase !== 'syncing' &&
+            phase !== 'stale_confirm'
+          ) {
             onClose();
           }
         }}
@@ -425,8 +598,20 @@ export function QrScanModal({
             </div>
             <button
               type="button"
-              onClick={() => phase !== 'connected' && onClose()}
-              disabled={phase === 'connected'}
+              onClick={() => {
+                if (
+                  phase !== 'connected' &&
+                  phase !== 'syncing' &&
+                  phase !== 'stale_confirm'
+                ) {
+                  onClose();
+                }
+              }}
+              disabled={
+                phase === 'connected' ||
+                phase === 'syncing' ||
+                phase === 'stale_confirm'
+              }
               className="w-8 h-8 inline-flex items-center justify-center transition-colors disabled:opacity-30"
               style={{ color: 'var(--ink-faint)' }}
               aria-label="إغلاق"
@@ -604,6 +789,94 @@ export function QrScanModal({
                 </motion.div>
               )}
 
+              {phase === 'stale_confirm' && (
+                <motion.div
+                  key="stale-confirm"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22 }}
+                  className="py-6 flex flex-col gap-4"
+                  dir="rtl"
+                  role="alertdialog"
+                  aria-live="assertive"
+                >
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert
+                      className="w-5 h-5"
+                      style={{ color: 'var(--warn)' }}
+                    />
+                    <h3
+                      className="text-sm font-medium"
+                      style={{ color: 'var(--ink)' }}
+                    >
+                      تم اكتشاف جهاز سابق مرتبط
+                    </h3>
+                  </div>
+                  <p
+                    className="text-[13px] leading-relaxed"
+                    style={{ color: 'var(--ink-soft)' }}
+                  >
+                    هل أنت متأكد أن هذا الرقم هو الصحيح؟
+                  </p>
+                  <p
+                    className="text-[11px] leading-relaxed"
+                    style={{ color: 'var(--ink-faint)' }}
+                  >
+                    (يمكن أن يحدث هذا إذا لم يتم فصل الجهاز السابق من إعدادات
+                    واتساب)
+                  </p>
+                  <div className="mt-2 flex items-center gap-3 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={onStaleConfirmYes}
+                      className="btn-primary h-10 px-5 text-[13px]"
+                    >
+                      نعم — تابع
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onStaleConfirmCancel()}
+                      className="inline-flex items-center gap-2 h-10 px-5 text-[13px] font-medium"
+                      style={{
+                        background: 'var(--paper-sink)',
+                        color: 'var(--ink-soft)',
+                        border: '1px solid var(--rule)',
+                        borderRadius: '3px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      إلغاء — أعد المحاولة
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {phase === 'syncing' && (
+                <motion.div
+                  key="syncing"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="py-12 flex flex-col items-center gap-4"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2
+                    className="w-6 h-6 animate-spin"
+                    style={{ color: 'var(--primary-glow)' }}
+                  />
+                  <p
+                    className="text-sm"
+                    style={{ color: 'var(--ink-soft)' }}
+                    dir="rtl"
+                  >
+                    جاري حفظ الربط…
+                  </p>
+                </motion.div>
+              )}
+
               {phase === 'connected' && (
                 <motion.div
                   key="connected"
@@ -745,7 +1018,12 @@ export function QrScanModal({
                       style={{ color: 'var(--ink)' }}
                       dir="rtl"
                     >
-                      تعذّر إنشاء الجلسة
+                      {/* Distinguish a post-pair sync failure from a
+                          pre-pair provisioning failure — the operator's
+                          next action is different (retry vs. reach out). */}
+                      {errorMsg && errorMsg.startsWith('sync_')
+                        ? 'فشل حفظ الربط — يرجى المحاولة مرة أخرى'
+                        : 'تعذّر إنشاء الجلسة'}
                     </p>
                     <p
                       className="text-xs mt-1.5 max-w-[36ch]"

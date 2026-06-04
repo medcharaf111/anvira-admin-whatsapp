@@ -517,6 +517,12 @@ export function WhatsAppTransportPanel({
         open={qrOpen}
         onClose={() => setQrOpen(false)}
         numberId={primaryNumberId}
+        // Pass the primary wa_number so the modal can call
+        // /api/settings/evolution/sync-after-pair on success — required
+        // for the Fix 2 backfill (instance + token + status) and for
+        // Fix 3's stale-cancel best-effort unlink. Null is tolerated by
+        // the modal (skips sync, preserves legacy behaviour).
+        waNumber={primaryWaNumber}
         resumeInstance={resumeInstance}
         onConnected={onConnected}
       />
