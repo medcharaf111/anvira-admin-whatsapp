@@ -30,6 +30,14 @@ type Phase =
   // operator doesn't see a phantom "connected" state before the bot can
   // actually reply.
   | 'syncing'
+  // NEW (Fix B2) — backend returned 409 `owner_jid_mismatch` from
+  // sync-after-pair: the QR was scanned from a WhatsApp account whose
+  // primary number doesn't match the tenant's registered wa_number.
+  // We auto-abandon the contradictory pairing (so the DB is clean) and
+  // then surface a two-CTA recovery panel: Retry-with-registered or
+  // Switch-registered-to-scanned (the latter is destructive — gated by
+  // a typed-digits confirmation, same pattern as change-number-modal).
+  | 'recovery_owner_mismatch'
   | 'connected'
   | 'expired'
   | 'error';
@@ -119,6 +127,25 @@ export function QrScanModal({
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [remainingMs, setRemainingMs] = useState<number>(SCAN_BUDGET_MS);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Fix B2 — when sync-after-pair returns 409 owner_jid_mismatch we
+  // surface both the wa_number the operator THOUGHT they were pairing
+  // (the registered number on this tenant) and the wa_number Evolution
+  // actually saw on the scanned account. The backend's 409 body returns
+  // both as `detail: { registered_wa_number, scanned_wa_number }`. We
+  // fall back to the waNumber prop for registered when the backend
+  // hasn't populated the detail object yet (graceful degrade).
+  const [registeredWaNumber, setRegisteredWaNumber] = useState<string | null>(
+    null
+  );
+  const [scannedWaNumber, setScannedWaNumber] = useState<string | null>(null);
+  // Fix B2 — typed-confirmation gate for the [Switch registered to
+  // scanned] CTA. We require the operator to retype the last 4 digits
+  // of the scanned number (the destructive side). Mirrors the gate in
+  // change-number-modal so the operator can't reflexively click their
+  // way into re-keying the tenant's primary number on a wrong scan.
+  const [switchTypedDigits, setSwitchTypedDigits] = useState<string>('');
+  const [switchSubmitting, setSwitchSubmitting] = useState<boolean>(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   // Fix 3 — timestamp the moment `state=open` could possibly arrive
   // (i.e. when we first display the QR or hand off to resume). We can't
   // rely on `phase === 'qr_pending'` alone because state setters are
@@ -160,6 +187,11 @@ export function QrScanModal({
     setAckText(null);
     setAckChecked(false);
     setAckRemainingSec(ACK_ENABLE_SEC);
+    setRegisteredWaNumber(null);
+    setScannedWaNumber(null);
+    setSwitchTypedDigits('');
+    setSwitchSubmitting(false);
+    setSwitchError(null);
     qrDisplayedAtRef.current = null;
   }, [stopAllTimers]);
 
@@ -191,15 +223,74 @@ export function QrScanModal({
           }),
         });
         if (!res.ok) {
+          // Backend uses `detail` for two shapes: a freeform string (most
+          // errors) OR a nested object for 409 owner_jid_mismatch:
+          //   { error: 'owner_jid_mismatch',
+          //     detail: { registered_wa_number, scanned_wa_number } }
+          // We have to type both arms because the recovery panel needs
+          // the structured numbers, while the generic error display only
+          // wants a flat string.
           const body = (await res.json().catch(() => ({}))) as {
             error?: string;
-            detail?: string;
+            detail?:
+              | string
+              | {
+                  registered_wa_number?: string;
+                  scanned_wa_number?: string;
+                }
+              | null;
           };
+          // Fix B2 — 409 owner_jid_mismatch is recoverable, not an
+          // error. Route it through the recovery panel: auto-call
+          // abandon-pair (so the DB is already clean when the broker
+          // sees the CTAs), capture both numbers for display, then
+          // switch the phase.
+          if (res.status === 409 && body.error === 'owner_jid_mismatch') {
+            const detailObj =
+              body.detail && typeof body.detail === 'object'
+                ? body.detail
+                : null;
+            // Backend SHOULD return both — fall back to `waNumber` prop
+            // for registered (we know what we sent) and to a placeholder
+            // for scanned if the backend hasn't extended the detail
+            // shape yet (graceful degrade, broker still sees a useful
+            // recovery panel even on an under-extended backend).
+            const registered =
+              detailObj?.registered_wa_number ?? waNumber ?? null;
+            const scanned = detailObj?.scanned_wa_number ?? null;
+            setRegisteredWaNumber(registered);
+            setScannedWaNumber(scanned);
+            // Fire-and-await the abandon so the DB is consistent BEFORE
+            // we show the recovery CTAs. If abandon fails we still show
+            // the panel — the operator's retry CTA will surface the
+            // remaining inconsistency through a fresh 409, and a
+            // re-abandon will fire from this same branch on the next
+            // attempt (idempotent).
+            try {
+              await fetch('/api/settings/whatsapp/abandon-pair', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  wa_number: registered,
+                  recovery_reason: 'owner_jid_mismatch',
+                }),
+              });
+            } catch {
+              // Best-effort. The recovery panel itself is the next
+              // affordance — we don't want a network blip on the
+              // abandon call to deny the broker their recovery CTAs.
+            }
+            setPhase('recovery_owner_mismatch');
+            return;
+          }
           // Surface the most specific signal we have. Backend distinguishes
-          // `owner_jid_mismatch`, `instance_name_mismatch`,
+          // `instance_name_mismatch`,
           // `evolution_token_missing_from_fetchInstances`, etc — relay
           // verbatim so the operator can take an informed retry path.
-          setErrorMsg(body.detail ?? body.error ?? `sync_${res.status}`);
+          // For the structured 409 case above we never reach here.
+          const detailStr =
+            typeof body.detail === 'string' ? body.detail : null;
+          setErrorMsg(detailStr ?? body.error ?? `sync_${res.status}`);
           setPhase('error');
           return;
         }
@@ -420,6 +511,62 @@ export function QrScanModal({
     void createInstance();
   }, [waNumber, resetTransient, createInstance]);
 
+  // Fix B2 — recovery panel CTA 1: "أعد المحاولة بالرقم المسجل". The
+  // backend already cleaned the contradictory pairing in the auto-abandon
+  // we fired when we entered recovery_owner_mismatch, so a clean retry
+  // is just resetTransient + a fresh ack/provision cycle (same path a
+  // fresh modal open would take). The numberId is unchanged so the new
+  // instance binds to the same client_numbers row.
+  const onRecoveryRetryRegistered = useCallback(() => {
+    resetTransient();
+    void startAck();
+  }, [resetTransient, startAck]);
+
+  // Fix B2 — recovery panel CTA 2: "غيّر الرقم المسجل إلى ...". The
+  // destructive side: re-keys the tenant's primary wa_number to the
+  // scanned number (via the existing change-number endpoint), then
+  // onSuccess closes the modal so the parent can re-open the pair flow
+  // with the new registered number pre-populated. Gated behind a typed-
+  // digits confirmation (same pattern as change-number-modal) so a
+  // reflexive click can't accidentally re-key the tenant on a wrong
+  // scan.
+  const onRecoverySwitchRegistered = useCallback(async () => {
+    if (!scannedWaNumber) {
+      setSwitchError('missing_scanned_number');
+      return;
+    }
+    setSwitchSubmitting(true);
+    setSwitchError(null);
+    try {
+      const res = await fetch('/api/settings/whatsapp/change-number', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_wa_number: scannedWaNumber }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        new_wa_number?: string;
+      };
+      if (!res.ok) {
+        setSwitchError(body.error ?? `change_${res.status}`);
+        setSwitchSubmitting(false);
+        return;
+      }
+      // Hand the new wa_number to the parent. The parent's onConnected
+      // callback is the bridge to re-opening the pair flow with the new
+      // registered number — same contract as the connected branch, except
+      // we pass the wa_number INSTEAD of an instance name. The parent is
+      // expected to re-open this modal with `waNumber` set to the new
+      // number.
+      onConnected?.(scannedWaNumber);
+      onClose();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'unknown';
+      setSwitchError(`network_error:${msg}`);
+      setSwitchSubmitting(false);
+    }
+  }, [scannedWaNumber, onConnected, onClose]);
+
   // Open transition — either resume an existing instance (skip
   // provisioning) or create a fresh one.
   useEffect(() => {
@@ -479,10 +626,13 @@ export function QrScanModal({
     return () => clearInterval(id);
   }, [phase, instance]);
 
-  // Esc to close — but only when we're not mid-success, mid-sync, or
-  // mid-stale-confirm. Yanking the modal during `syncing` would orphan
-  // the Evolution session vs the DB row; during `stale_confirm` it
-  // would swallow the operator's confirmation decision.
+  // Esc to close — but only when we're not mid-success, mid-sync,
+  // mid-stale-confirm, or mid-switch (recovery panel while a destructive
+  // change-number is in flight). Yanking the modal during `syncing`
+  // would orphan the Evolution session vs the DB row; during
+  // `stale_confirm` it would swallow the operator's confirmation
+  // decision; mid-switch could leave the change-number request half-
+  // resolved on the backend without the broker seeing the outcome.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -490,14 +640,15 @@ export function QrScanModal({
         e.key === 'Escape' &&
         phase !== 'connected' &&
         phase !== 'syncing' &&
-        phase !== 'stale_confirm'
+        phase !== 'stale_confirm' &&
+        !(phase === 'recovery_owner_mismatch' && switchSubmitting)
       ) {
         onClose();
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, phase, onClose]);
+  }, [open, phase, switchSubmitting, onClose]);
 
   function handleRetry() {
     resetTransient();
@@ -525,13 +676,15 @@ export function QrScanModal({
           WebkitBackdropFilter: 'blur(6px)',
         }}
         onClick={(e) => {
-          // Click-out closes — unless we're mid-success, mid-sync, or
-          // mid-stale-confirm (see Esc handler above for rationale).
+          // Click-out closes — unless we're mid-success, mid-sync,
+          // mid-stale-confirm, or mid-switch (see Esc handler above for
+          // rationale).
           if (
             e.target === e.currentTarget &&
             phase !== 'connected' &&
             phase !== 'syncing' &&
-            phase !== 'stale_confirm'
+            phase !== 'stale_confirm' &&
+            !(phase === 'recovery_owner_mismatch' && switchSubmitting)
           ) {
             onClose();
           }
@@ -602,7 +755,8 @@ export function QrScanModal({
                 if (
                   phase !== 'connected' &&
                   phase !== 'syncing' &&
-                  phase !== 'stale_confirm'
+                  phase !== 'stale_confirm' &&
+                  !(phase === 'recovery_owner_mismatch' && switchSubmitting)
                 ) {
                   onClose();
                 }
@@ -610,7 +764,8 @@ export function QrScanModal({
               disabled={
                 phase === 'connected' ||
                 phase === 'syncing' ||
-                phase === 'stale_confirm'
+                phase === 'stale_confirm' ||
+                (phase === 'recovery_owner_mismatch' && switchSubmitting)
               }
               className="w-8 h-8 inline-flex items-center justify-center transition-colors disabled:opacity-30"
               style={{ color: 'var(--ink-faint)' }}
@@ -926,6 +1081,214 @@ export function QrScanModal({
                       الرقم متّصل · البوت جاهز للردّ على رسائل هذا المكتب.
                     </p>
                   </div>
+                </motion.div>
+              )}
+
+              {phase === 'recovery_owner_mismatch' && (
+                <motion.div
+                  key="recovery-owner-mismatch"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22 }}
+                  className="py-4 flex flex-col gap-4"
+                  dir="rtl"
+                  role="alertdialog"
+                  aria-live="assertive"
+                >
+                  {/* Header — same visual weight as stale_confirm so
+                      the operator immediately reads this as a
+                      recoverable mismatch, not a generic error. */}
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert
+                      className="w-5 h-5"
+                      style={{ color: 'var(--warn)' }}
+                    />
+                    <h3
+                      className="text-sm font-medium"
+                      style={{ color: 'var(--ink)' }}
+                    >
+                      يبدو أنك مسحت من حساب واتساب غير المسجل
+                    </h3>
+                  </div>
+
+                  <p
+                    className="text-[13px] leading-relaxed"
+                    style={{ color: 'var(--ink-soft)' }}
+                  >
+                    اخترنا تنظيف الجلسة المتعارضة تلقائياً. اختر إحدى
+                    الطريقتين أدناه للمتابعة.
+                  </p>
+
+                  {/* Numbers block — registered + scanned side by side
+                      so the operator can spot the difference at a
+                      glance. Both rendered LTR + monospace because
+                      E.164 numbers are not RTL text. */}
+                  <div
+                    className="p-3 flex flex-col gap-2"
+                    style={{
+                      background: 'var(--paper-sink)',
+                      border: '1px solid var(--rule)',
+                      borderRadius: '3px',
+                    }}
+                  >
+                    <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                      <span
+                        className="text-[11px]"
+                        style={{ color: 'var(--ink-soft)' }}
+                      >
+                        الرقم المسجل:
+                      </span>
+                      <span
+                        className="text-sm tabular"
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--ink)',
+                          letterSpacing: '0.02em',
+                        }}
+                        dir="ltr"
+                      >
+                        {registeredWaNumber ?? '—'}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                      <span
+                        className="text-[11px]"
+                        style={{ color: 'var(--ink-soft)' }}
+                      >
+                        الرقم الذي مسحت به:
+                      </span>
+                      <span
+                        className="text-sm tabular"
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--warn)',
+                          letterSpacing: '0.02em',
+                        }}
+                        dir="ltr"
+                      >
+                        {scannedWaNumber ?? '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* CTA 1 — non-destructive retry. No confirmation
+                      gate; this just re-opens the QR for the same
+                      registered number. */}
+                  <button
+                    type="button"
+                    onClick={onRecoveryRetryRegistered}
+                    disabled={switchSubmitting}
+                    className="btn-primary h-10 px-5 text-[13px] disabled:opacity-40"
+                  >
+                    أعد المحاولة بالرقم المسجل
+                  </button>
+
+                  {/* CTA 2 — destructive: re-keys the tenant. Gated by
+                      typed-confirmation on the last 4 digits of the
+                      SCANNED number. Pattern mirrors change-number-
+                      modal so the operator's muscle memory transfers
+                      across surfaces. */}
+                  {scannedWaNumber && (
+                    <div
+                      className="mt-2 p-3 flex flex-col gap-2"
+                      style={{
+                        background: 'var(--signal-soft)',
+                        border:
+                          '1px solid color-mix(in srgb, var(--signal) 30%, transparent)',
+                        borderRadius: '3px',
+                      }}
+                    >
+                      <p
+                        className="text-[11px] leading-relaxed"
+                        style={{ color: 'var(--signal)' }}
+                      >
+                        لتغيير الرقم المسجل إلى الرقم الذي مسحت به،
+                        اكتب آخر{' '}
+                        <strong style={{ fontWeight: 600 }}>4</strong>{' '}
+                        أرقام منه (
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            letterSpacing: '0.04em',
+                          }}
+                          dir="ltr"
+                        >
+                          …{scannedWaNumber.replace(/\D/g, '').slice(-4)}
+                        </span>
+                        ):
+                      </p>
+                      <input
+                        type="text"
+                        value={switchTypedDigits}
+                        onChange={(e) =>
+                          setSwitchTypedDigits(
+                            e.target.value.replace(/\D/g, '')
+                          )
+                        }
+                        disabled={switchSubmitting}
+                        maxLength={4}
+                        className="w-full h-10 px-3 text-sm tabular"
+                        style={{
+                          background: 'var(--paper)',
+                          border: '1px solid var(--rule)',
+                          borderRadius: '3px',
+                          color: 'var(--ink)',
+                          fontFamily: 'var(--font-mono)',
+                          letterSpacing: '0.04em',
+                        }}
+                        dir="ltr"
+                        placeholder="0000"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void onRecoverySwitchRegistered()}
+                        disabled={
+                          switchSubmitting ||
+                          switchTypedDigits.length !== 4 ||
+                          switchTypedDigits !==
+                            scannedWaNumber.replace(/\D/g, '').slice(-4)
+                        }
+                        className="btn-signal inline-flex items-center justify-center gap-2 h-10 px-5 text-[13px] disabled:opacity-40"
+                      >
+                        {switchSubmitting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>…جارٍ</span>
+                          </>
+                        ) : (
+                          <span>
+                            غيّر الرقم المسجل إلى{' '}
+                            <span
+                              style={{
+                                fontFamily: 'var(--font-mono)',
+                                letterSpacing: '0.02em',
+                              }}
+                              dir="ltr"
+                            >
+                              {scannedWaNumber}
+                            </span>
+                          </span>
+                        )}
+                      </button>
+                      {switchError && (
+                        <p
+                          className="text-[10px] tabular"
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            color: 'var(--signal)',
+                            letterSpacing: '0.04em',
+                          }}
+                          dir="ltr"
+                        >
+                          {switchError}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               )}
 
