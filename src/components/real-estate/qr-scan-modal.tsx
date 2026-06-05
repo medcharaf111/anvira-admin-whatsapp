@@ -101,6 +101,10 @@ const ACK_ENABLE_SEC = 20;
 const STALE_THRESHOLD_MS = Number(
   process.env.NEXT_PUBLIC_QR_STALE_THRESHOLD_MS ?? 2_000
 );
+// F1: cap auto-re-provision attempts per modal lifetime so a permanently
+// broken backend can't loop the operator into an infinite re-provision
+// storm. Resets on fresh modal open + on successful post-pair sync.
+const QR_REFRESH_MAX_ATTEMPTS = 3;
 
 /**
  * QR scan modal — the pilot's onboarding heart.
@@ -166,6 +170,21 @@ export function QrScanModal({
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expiryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // F1: dedupe re-entrant onError calls (browsers fire onError multiple
+  // times per failed <img> load) and cap total re-provisions per modal
+  // lifetime. Both reset on fresh modal open + post-pair sync success.
+  const qrRefreshInFlightRef = useRef(false);
+  const qrRefreshAttemptsRef = useRef(0);
+  // F2: read the current phase from inside the polling interval without
+  // re-spawning the interval on every phase transition (the polling
+  // useCallback only depends on stable helpers). Kept in sync via the
+  // phase useEffect below.
+  const phaseRef = useRef<Phase>('idle');
+  // F1+F2: stable ref to reprovisionFresh so the polling callback (which
+  // is defined before createInstance/reprovisionFresh) can invoke the
+  // latest version without forcing a forward declaration. Assigned in a
+  // useEffect below.
+  const reprovisionFreshRef = useRef<(() => Promise<void>) | null>(null);
 
   const stopAllTimers = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -193,6 +212,10 @@ export function QrScanModal({
     setSwitchSubmitting(false);
     setSwitchError(null);
     qrDisplayedAtRef.current = null;
+    // F1: clear the auto-re-provision dedupe + attempts counter on every
+    // transient reset (fresh modal open, retry CTA, stale-cancel path).
+    qrRefreshInFlightRef.current = false;
+    qrRefreshAttemptsRef.current = 0;
   }, [stopAllTimers]);
 
   // Fix 2 admin half — backfill the DB row (instance + token + status)
@@ -209,6 +232,8 @@ export function QrScanModal({
       // missing prop; the operator paired successfully.
       if (!waNumber) {
         setPhase('connected');
+        // F1: clear auto-re-provision counter on the legacy success path too.
+        qrRefreshAttemptsRef.current = 0;
         onConnected?.(instanceName);
         setTimeout(() => onClose(), SUCCESS_HOLD_MS);
         return;
@@ -295,6 +320,10 @@ export function QrScanModal({
           return;
         }
         setPhase('connected');
+        // F1: successful pair means any prior auto-re-provision attempts
+        // are no longer relevant — clear the counter so a subsequent
+        // session in the same modal lifetime starts fresh.
+        qrRefreshAttemptsRef.current = 0;
         onConnected?.(instanceName);
         setTimeout(() => onClose(), SUCCESS_HOLD_MS);
       } catch {
@@ -338,8 +367,53 @@ export function QrScanModal({
             `/api/evolution/instances/${encodeURIComponent(instanceName)}/state`,
             { cache: 'no-store' }
           );
+          // F2: 404 instance_not_found — the Evolution row is gone
+          // (admin abandoned, daemon GC, etc). Don't silently swallow:
+          // route through the F1 re-provision path under the same
+          // attempts cap so we recover without an infinite re-create
+          // loop on a permanently broken backend.
+          if (res.status === 404) {
+            stopAllTimers();
+            if (qrRefreshInFlightRef.current) return;
+            if (qrRefreshAttemptsRef.current >= QR_REFRESH_MAX_ATTEMPTS) {
+              setPhase('error');
+              setErrorMsg('instance_gone_max_retries');
+              return;
+            }
+            qrRefreshInFlightRef.current = true;
+            try {
+              await reprovisionFreshRef.current?.();
+            } finally {
+              qrRefreshInFlightRef.current = false;
+            }
+            return;
+          }
           if (!res.ok) return;
           const json = (await res.json()) as StateResponse;
+          // F2: banned is terminal — lifecycle.ts never downgrades banned
+          // back to anything else, so polling further is pure churn.
+          // Distinct copy from the generic error path so the operator
+          // doesn't waste time retrying.
+          if (json.state === 'banned') {
+            stopAllTimers();
+            setPhase('error');
+            setErrorMsg('instance_banned');
+            return;
+          }
+          // F2: disconnected after qr_pending implies the scan attempt
+          // collapsed the session (e.g. operator scanned, WhatsApp
+          // rejected, Baileys dropped to disconnected). Bail with a
+          // distinct error so the next retry kicks off a fresh QR
+          // rather than continuing to poll a dead session.
+          if (
+            json.state === 'disconnected' &&
+            phaseRef.current === 'qr_pending'
+          ) {
+            stopAllTimers();
+            setPhase('error');
+            setErrorMsg('disconnected_after_qr');
+            return;
+          }
           if (json.state === 'connected') {
             stopAllTimers();
             // Fix 3 — distinguish a fresh-scan handshake from a Baileys
@@ -380,6 +454,10 @@ export function QrScanModal({
     }
     setPhase('creating');
     setErrorMsg(null);
+    // F1: clear any stale qrUrl so an in-flight <img> can't fire onError
+    // against the previous (now-gone) instance and trigger a re-entrant
+    // re-provision.
+    setQrUrl(null);
     try {
       const res = await fetch('/api/evolution/instances', {
         method: 'POST',
@@ -402,6 +480,19 @@ export function QrScanModal({
         setPhase('error');
         return;
       }
+      // F3: tenant already paired (409 already_provisioned + state=connected
+      // + null qr_fetch_url) — skip qr_pending entirely and jump straight
+      // to the sync handoff. runPostPairSync already dispatches into
+      // 'syncing' → 'connected' (auto-close) or 'recovery_owner_mismatch'
+      // (existing e4500fa recovery panel) so no new UI work is needed.
+      // Idempotent: instance names are deterministic from (slug, wa_number),
+      // so a re-provision triggered by F1 or F2 against an already-paired
+      // tenant returns the same 409 shape and re-enters F3 cleanly.
+      if (json.state === 'connected' && !json.qr_fetch_url) {
+        setInstance(instanceName);
+        void runPostPairSync(instanceName);
+        return;
+      }
       setInstance(instanceName);
       // We proxy the QR through our own admin route to enforce session
       // + RE-only gating, regardless of what backend hands us.
@@ -416,7 +507,18 @@ export function QrScanModal({
       setErrorMsg('network_error');
       setPhase('error');
     }
-  }, [numberId, startPolling]);
+  }, [numberId, startPolling, runPostPairSync]);
+
+  // F1: thin wrapper around createInstance that bumps the auto-re-provision
+  // attempts counter before calling. Kept as a separate callback so F1
+  // (img onError) and F2 (state-poll 404) both share the same dedupe +
+  // cap path without duplicating the increment logic. Caller is responsible
+  // for the in-flight gate (qrRefreshInFlightRef) and the cap check.
+  const reprovisionFresh = useCallback(async () => {
+    qrRefreshAttemptsRef.current += 1;
+    setQrUrl(null);
+    await createInstance();
+  }, [createInstance]);
 
   // Item 16 — open the ban-risk acknowledgement screen. Fetches the current
   // disclosure (version + exact text) and starts the ~20s enable countdown.
@@ -609,7 +711,20 @@ export function QrScanModal({
     } else if (phase !== 'stale_confirm') {
       qrDisplayedAtRef.current = null;
     }
+    // F2: mirror phase into a ref so the polling interval can branch
+    // on the current phase without depending on it (which would force
+    // a re-spawn on every phase transition and orphan in-flight fetches).
+    phaseRef.current = phase;
   }, [phase]);
+
+  // F1+F2: keep the reprovisionFresh ref pointed at the latest callback
+  // identity so the polling interval (defined before createInstance) can
+  // invoke it without a forward declaration. createInstance's identity
+  // changes when numberId/startPolling/runPostPairSync change; this
+  // effect keeps the ref aligned.
+  useEffect(() => {
+    reprovisionFreshRef.current = reprovisionFresh;
+  }, [reprovisionFresh]);
 
   // Periodically refresh the QR <img> so we pick up backend rotations
   // without forcing the operator to refresh. ~25s cadence keeps under
@@ -899,6 +1014,60 @@ export function QrScanModal({
                           height: 300,
                           display: 'block',
                           imageRendering: 'pixelated',
+                        }}
+                        // F1: auto-recover when the QR <img> fails to load
+                        // (stale instance, 410 expired, transient blip).
+                        // Dedupe re-entrant onError fires via the in-flight
+                        // ref; cap absolute re-provisions at
+                        // QR_REFRESH_MAX_ATTEMPTS so a broken backend can't
+                        // loop forever.
+                        onError={async () => {
+                          if (!qrUrl) return; // empty src (post-reset) — ignore
+                          if (qrRefreshInFlightRef.current) return;
+                          if (
+                            qrRefreshAttemptsRef.current >=
+                            QR_REFRESH_MAX_ATTEMPTS
+                          ) {
+                            stopAllTimers();
+                            setPhase('error');
+                            setErrorMsg('qr_unavailable_retry_later');
+                            return;
+                          }
+                          qrRefreshInFlightRef.current = true;
+                          try {
+                            // HEAD probe to classify: 404 = instance gone
+                            // (re-provision), null = transient network
+                            // (show retry CTA, no loop), other = expired
+                            // or unknown (just bump cache-buster).
+                            const probe = await fetch(
+                              `/api/evolution/instances/${encodeURIComponent(
+                                instance ?? ''
+                              )}/qr`,
+                              { method: 'HEAD', cache: 'no-store' }
+                            ).catch(() => null);
+
+                            if (probe && probe.status === 404) {
+                              stopAllTimers();
+                              await reprovisionFreshRef.current?.();
+                            } else if (!probe) {
+                              stopAllTimers();
+                              setPhase('error');
+                              setErrorMsg('qr_refresh_needed_transient');
+                            } else {
+                              // 410 expired / other non-404 — just bump
+                              // the cache-buster on qrUrl and let the
+                              // <img> reload from the same instance.
+                              if (instance) {
+                                setQrUrl(
+                                  `/api/evolution/instances/${encodeURIComponent(
+                                    instance
+                                  )}/qr?t=${Date.now()}`
+                                );
+                              }
+                            }
+                          } finally {
+                            qrRefreshInFlightRef.current = false;
+                          }
                         }}
                       />
                     </div>
