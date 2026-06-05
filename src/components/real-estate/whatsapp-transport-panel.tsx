@@ -16,6 +16,7 @@ import type { Transport } from '@/lib/client';
 import { QrScanModal } from './qr-scan-modal';
 import { EvolutionInstancePanel } from './evolution-instance-panel';
 import { UnlinkNumberModal } from '@/components/settings/unlink-number-modal';
+import { ChangeNumberModal } from '@/components/settings/change-number-modal';
 
 interface WhatsAppTransportPanelProps {
   transport: Transport;
@@ -123,6 +124,14 @@ export function WhatsAppTransportPanel({
   );
   const [optimisticallyUnlinked, setOptimisticallyUnlinked] =
     useState(false);
+  // Change-number modal state. The "pending" wa_number is the new number
+  // the operator just confirmed — the QR pair modal reads it directly so
+  // we don't need to wait for router.refresh() + getCurrentClient to land
+  // before showing the pair surface. Cleared after the QR modal closes.
+  const [changeNumberOpen, setChangeNumberOpen] = useState(false);
+  const [pendingNewWaNumber, setPendingNewWaNumber] = useState<string | null>(
+    null
+  );
 
   const fetchSidecars = useCallback(async () => {
     try {
@@ -177,6 +186,37 @@ export function WhatsAppTransportPanel({
     // Re-render server components so getCurrentClient picks up the
     // newly cleared evolution_instance + reverted transport.
     router.refresh();
+  }
+
+  // After a successful change-number call: the backend has already
+  // unlinked the OLD Evolution instance and re-keyed both
+  // client_numbers.wa_number and dashboard_clients.wa_number. The QR
+  // pair modal needs to scan for the NEW number, so we:
+  //   1. close the change-number modal
+  //   2. stash the new wa_number for the QR modal to consume directly
+  //      (router.refresh() is async — without this stash, the QR modal
+  //      would open with stale primaryWaNumber for one render frame)
+  //   3. refresh server state so the rest of the page settles to the
+  //      new authoritative number
+  //   4. open the QR modal in fresh-pair mode (no resumeInstance —
+  //      the old instance is gone; the backend will provision a new
+  //      one with the deterministic name during the first /create call)
+  function onChangeNumberSuccess(newWaNumber: string) {
+    setChangeNumberOpen(false);
+    setPendingNewWaNumber(newWaNumber);
+    router.refresh();
+    setResumeInstance(null);
+    setQrOpen(true);
+  }
+
+  // When the QR modal closes, drop the pending wa_number so subsequent
+  // pair flows (e.g. the operator opens the standalone "ربط رقم واتساب"
+  // CTA) read from the canonical server state instead of the stale
+  // post-change value. router.refresh() will have populated
+  // primaryWaNumber by then.
+  function onQrClose() {
+    setQrOpen(false);
+    setPendingNewWaNumber(null);
   }
 
   useEffect(() => {
@@ -430,32 +470,55 @@ export function WhatsAppTransportPanel({
                           style={{ color: 'var(--ink)' }}
                           dir="rtl"
                         >
-                          إلغاء الربط
+                          إدارة الرقم
                         </h4>
                         <p
                           className="text-[12px] leading-relaxed"
                           style={{ color: 'var(--ink-soft)' }}
                           dir="rtl"
                         >
-                          إذا أردت تغيير الرقم أو إيقاف الخدمة على هذا الرقم
+                          غيّر الرقم مع الحفاظ على المحادثات، أو ألغِ الربط
+                          لإيقاف الخدمة.
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => void openUnlinkModal()}
-                        className="inline-flex items-center justify-center h-9 px-4 text-xs"
-                        style={{
-                          background: 'transparent',
-                          color: 'var(--signal)',
-                          border:
-                            '1px solid color-mix(in srgb, var(--signal) 35%, var(--rule))',
-                          borderRadius: '3px',
-                          cursor: 'pointer',
-                          transition: 'background 0.18s ease',
-                        }}
-                      >
-                        إلغاء الربط
-                      </button>
+                      <div className="inline-flex items-center gap-2 flex-wrap">
+                        {/* "Change number" — sits BEFORE unlink because it's
+                          * the less-destructive option (preserves history,
+                          * just re-keys the binding). Operators reading the
+                          * row left-to-right (RTL UI, but visual order from
+                          * eye to next control) should hit Change first. */}
+                        <button
+                          type="button"
+                          onClick={() => setChangeNumberOpen(true)}
+                          className="inline-flex items-center justify-center h-9 px-4 text-xs"
+                          style={{
+                            background: 'transparent',
+                            color: 'var(--ink)',
+                            border: '1px solid var(--rule)',
+                            borderRadius: '3px',
+                            cursor: 'pointer',
+                            transition: 'background 0.18s ease',
+                          }}
+                        >
+                          تغيير الرقم
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void openUnlinkModal()}
+                          className="inline-flex items-center justify-center h-9 px-4 text-xs"
+                          style={{
+                            background: 'transparent',
+                            color: 'var(--signal)',
+                            border:
+                              '1px solid color-mix(in srgb, var(--signal) 35%, var(--rule))',
+                            borderRadius: '3px',
+                            cursor: 'pointer',
+                            transition: 'background 0.18s ease',
+                          }}
+                        >
+                          إلغاء الربط
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -515,14 +578,20 @@ export function WhatsAppTransportPanel({
 
       <QrScanModal
         open={qrOpen}
-        onClose={() => setQrOpen(false)}
+        onClose={onQrClose}
         numberId={primaryNumberId}
         // Pass the primary wa_number so the modal can call
         // /api/settings/evolution/sync-after-pair on success — required
         // for the Fix 2 backfill (instance + token + status) and for
         // Fix 3's stale-cancel best-effort unlink. Null is tolerated by
         // the modal (skips sync, preserves legacy behaviour).
-        waNumber={primaryWaNumber}
+        //
+        // Prefer `pendingNewWaNumber` when present: post-change-number,
+        // the canonical primaryWaNumber may still hold the old value for
+        // one render frame until router.refresh() resolves. The backend
+        // has already re-keyed the row to the new number, so the modal
+        // must scan/sync against THAT, not the stale primary.
+        waNumber={pendingNewWaNumber ?? primaryWaNumber}
         resumeInstance={resumeInstance}
         onConnected={onConnected}
       />
@@ -537,6 +606,19 @@ export function WhatsAppTransportPanel({
         onSuccess={onUnlinkSuccess}
         waNumber={primaryWaNumber ?? ''}
         activeCount={unlinkActiveCount}
+        clientId={clientId}
+      />
+
+      {/* Change-number confirmation surface — same overlay model as the
+        * unlink modal. The success handler stashes the new number for
+        * the QR pair modal to consume directly, so the operator flows
+        * straight from "confirm change" → "scan QR for new number"
+        * without a perceptual gap. */}
+      <ChangeNumberModal
+        open={changeNumberOpen}
+        onClose={() => setChangeNumberOpen(false)}
+        onSuccess={onChangeNumberSuccess}
+        currentWaNumber={primaryWaNumber ?? ''}
         clientId={clientId}
       />
     </section>
