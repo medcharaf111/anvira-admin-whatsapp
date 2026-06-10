@@ -91,7 +91,7 @@ const REAL_ESTATE_FIELDS: FieldDef[] = [
     num: '09',
     key: 'financing_partners',
     label: 'البنوك الممولة',
-    help: 'Financing partners — Emirates NBD, FAB, Mashreq, Riyad Bank, Al Rajhi…',
+    help: 'Financing partners — قائمة البنوك المتعاوِنين معكم. اختر القالب الجاهز لتعبئة الأسماء المعتادة في بلدك.',
     long: true,
   },
   {
