@@ -112,12 +112,20 @@ export async function GET(
       intended_use: c.intended_use ?? null,
       documents: docs.map((d) => {
         const dd = d as Record<string, unknown>;
+        // Slice 5.5 — storage_url is opaque `enc://...` ciphertext, never
+        // servable directly. Point the card at the decrypt-and-serve proxy.
+        // preview_url stays NULL on purpose: if it pointed at the view route
+        // the drawer's <img> would silently decrypt every image on every
+        // drawer open, flooding the access audit with rows that don't mean
+        // "an operator viewed this document". With click-to-view, every
+        // kyc.document.decrypt audit row is a genuine human access.
+        const viewUrl = `/api/kyc/cases/${id}/documents/${dd.id}/view`;
         return {
           id: dd.id,
           doc_type: dd.doc_type,
           filename: dd.original_filename ?? null,
-          preview_url: dd.storage_url ?? null,
-          download_url: dd.storage_url ?? null,
+          preview_url: null,
+          download_url: viewUrl,
           uploaded_at: dd.received_at ?? null,
         };
       }),
