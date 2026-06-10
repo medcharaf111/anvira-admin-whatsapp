@@ -108,23 +108,33 @@ export interface ScreeningLogEntry {
   notes: string | null;
 }
 
+// 2.9 — Canonical DocType vocabulary. Mirrors KycDocType in
+// anvira-backend/src/kyc/types.ts AND the kyc_documents.doc_type DB
+// CHECK (migration 20260624). Real backend docs come back with
+// 'iqama_or_national_id' / 'source_of_funds_letter' / 'aml_attestation'
+// / 'other' — the old DOC_LABELS missed all four, so the drawer rendered
+// raw enum strings instead of bilingual labels (line ~1283 fallback).
 export type DocType =
   | 'passport'
   | 'emirates_id'
-  | 'national_id'
+  | 'iqama_or_national_id'
   | 'proof_of_address'
-  | 'source_of_funds'
+  | 'aml_attestation'
+  | 'source_of_funds_letter'
   | 'bank_statement'
-  | 'salary_certificate';
+  | 'salary_certificate'
+  | 'other';
 
 const DOC_LABELS: Record<DocType, { ar: string; en: string }> = {
   passport: { ar: 'الجواز', en: 'Passport' },
   emirates_id: { ar: 'الهوية الإماراتية', en: 'Emirates ID' },
-  national_id: { ar: 'الهوية الوطنية', en: 'National ID' },
+  iqama_or_national_id: { ar: 'الإقامة أو الهوية الوطنية', en: 'Iqama / National ID' },
   proof_of_address: { ar: 'إثبات العنوان', en: 'Address proof' },
-  source_of_funds: { ar: 'مصدر الأموال', en: 'Source of funds' },
+  aml_attestation: { ar: 'إقرار مكافحة غسل الأموال', en: 'AML attestation' },
+  source_of_funds_letter: { ar: 'خطاب مصدر الأموال', en: 'Source-of-funds letter' },
   bank_statement: { ar: 'كشف حساب', en: 'Bank statement' },
   salary_certificate: { ar: 'شهادة راتب', en: 'Salary certificate' },
+  other: { ar: 'مستند آخر', en: 'Other' },
 };
 
 const STAGE_ORDER: KycStatus[] = [
@@ -321,11 +331,17 @@ export function KycCaseDrawer({
 
   const stageIdx = detail ? STAGE_ORDER.indexOf(detail.status) : -1;
   const submittedDocs = new Set((detail?.documents ?? []).map((d) => d.doc_type));
+  // 2.9 — Mirror backend buildChecklist() base list (src/kyc/types.ts).
+  // Backend returns required_doc_types via /api/kyc/cases/[id]; this is the
+  // pre-load fallback before that round-trip lands. Old 'source_of_funds'
+  // was DB-invalid; aml_attestation + bank_statement were missing from the
+  // base required set.
   const requiredDocs = detail?.required_doc_types ?? [
     'passport',
     'emirates_id',
+    'bank_statement',
     'proof_of_address',
-    'source_of_funds',
+    'aml_attestation',
   ];
 
   const node = (

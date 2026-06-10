@@ -6,12 +6,18 @@ import { logAction } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
+// 2.9 — Canonical doc-type vocabulary. Mirrors backend REQUEST_DOC_TYPES
+// in webhook/internalRouter.ts AND the kyc_documents.doc_type DB CHECK
+// constraint (migration 20260624). 'national_id' and 'source_of_funds'
+// were DB-invalid — renamed to canonical values so a successful request
+// can actually round-trip into a stored document row.
 const VALID_DOC_TYPES = new Set([
   'passport',
   'emirates_id',
-  'national_id',
+  'iqama_or_national_id',
   'proof_of_address',
-  'source_of_funds',
+  'aml_attestation',
+  'source_of_funds_letter',
   'bank_statement',
   'salary_certificate',
 ]);

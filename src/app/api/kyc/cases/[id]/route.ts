@@ -57,12 +57,19 @@ export async function GET(
     const amount = typeof c.expected_purchase_amount === 'number'
       ? c.expected_purchase_amount
       : 0;
-    // Mirror backend's buildChecklist() — kept here so the admin layer
-    // doesn't need a backend round-trip just to populate the document
-    // request UI. Update both in lockstep if backend's checklist rules
-    // change.
-    const required: string[] = ['passport', 'bank_statement'];
-    if (amount >= 1_000_000) required.push('source_of_funds');
+    // 2.9 — Mirror backend's buildChecklist() in src/kyc/types.ts. Kept
+    // here so the admin layer doesn't need a backend round-trip to
+    // populate the document request UI. Update both in lockstep.
+    // Canonical doc-type vocabulary lives in migration
+    // 20260624000000_kyc_doc_type_expand.sql.
+    const required: string[] = [
+      'passport',
+      'emirates_id',
+      'bank_statement',
+      'proof_of_address',
+      'aml_attestation',
+    ];
+    if (amount >= 1_000_000) required.push('source_of_funds_letter');
 
     // Pass through the backend's latest_buyer_budget snapshot. The
     // drawer compares it against expected_purchase_amount and renders
