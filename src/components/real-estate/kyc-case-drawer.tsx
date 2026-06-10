@@ -503,8 +503,13 @@ export function KycCaseDrawer({
                 <section>
                   <SectionHead label="SANCTIONS SCREENING" />
                   {detail.screening_log.length === 0 ? (
+                    // 2.4 — the most common pilot state: screening has never
+                    // run. Spell out WHY this matters (case can't reach
+                    // ready_for_filing) and the honest fail-closed posture
+                    // (no provider configured ⇒ recorded as not_screened,
+                    // never fabricated as clear).
                     <div
-                      className="px-4 py-5 text-xs text-center"
+                      className="px-4 py-5 text-xs"
                       style={{
                         background: 'var(--paper-lift)',
                         border: '1px dashed var(--rule)',
@@ -512,7 +517,15 @@ export function KycCaseDrawer({
                         color: 'var(--ink-faint)',
                       }}
                     >
-                      لم يتم تشغيل أي فحص بعد.
+                      <div className="text-center font-medium" style={{ color: 'var(--ink-soft)' }}>
+                        لم يتم تشغيل أي فحص عقوبات بعد.
+                      </div>
+                      <div className="mt-2 leading-relaxed text-center">
+                        لا تكتمل الحالة (ready_for_filing) قبل تشغيل فحص واحد على الأقل.
+                        إذا لم يكن مزوّد الفحص مفعّلاً في إعدادات النظام، تُسجَّل النتيجة
+                        بأمانة كـ&quot;لم يُفحَص&quot; — لا تُختلق نتيجة &quot;نظيف&quot; أبداً.
+                        استخدم زر &quot;تشغيل الفحص&quot; أدناه.
+                      </div>
                     </div>
                   ) : (
                     <ul
