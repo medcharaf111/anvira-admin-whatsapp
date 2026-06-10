@@ -148,24 +148,106 @@ export function tierAllows(
   return TIER_RANK[client.subscription_tier] >= TIER_RANK[FEATURE_MIN_TIER[feature]];
 }
 
+/** Honour TIER_ENFORCEMENT_MODE env override (`'hard'` | `'soft'` |
+ *  `'mixed'`); else fall back to the per-feature mode. NOTE: an UNSET env is
+ *  the per-feature fall-through — de-facto MIXED. 3.2 hardening mirrors the
+ *  backend twin: trim+lowercase (a typo'd 'Hard' used to silently land in
+ *  mixed), accept 'mixed' explicitly, warn once on garbage. */
+let _warnedBadMode = false;
 export function blockMode(feature: TierFeature): 'hard' | 'soft' {
-  const envOverride = process.env.TIER_ENFORCEMENT_MODE;
+  const raw = process.env.TIER_ENFORCEMENT_MODE;
+  const envOverride = (raw ?? '').trim().toLowerCase();
   if (envOverride === 'hard') return 'hard';
   if (envOverride === 'soft') return 'soft';
+  if (envOverride !== '' && envOverride !== 'mixed' && !_warnedBadMode) {
+    _warnedBadMode = true;
+    console.warn(
+      `[tier-gates] TIER_ENFORCEMENT_MODE='${raw}' is not one of soft|hard|mixed — falling through to per-feature (mixed) mode. Fix the env.`
+    );
+  }
   return FEATURE_BLOCK_MODE[feature];
 }
 
+/** 3.2 — admin-side tier-gate telemetry. Mirrors the backend's
+ *  logTierGateEvent (same table, same dedupe window) so admin pre-check
+ *  soft-skips and hard-blocks are visible in tier_gate_events during the
+ *  soft-mode soak — previously the admin surface was blind. Server-side
+ *  only (service-role client); fire-and-forget; PII-free by construction. */
+export type TierGateOutcome =
+  | 'hard_block'
+  | 'soft_skip'
+  | 'resource_limit'
+  | 'pilot_grandfathered';
+
+const _dedupe = new Map<string, number>();
+const DEDUPE_WINDOW_MS = 60 * 60_000;
+
+export async function logTierGateEvent(evt: {
+  clientId: string;
+  feature: TierFeature;
+  currentTier: SubscriptionTier;
+  requiredTier: SubscriptionTier;
+  outcome: TierGateOutcome;
+}): Promise<void> {
+  try {
+    const key = `${evt.clientId}:${evt.feature}:${evt.outcome}`;
+    const now = Date.now();
+    const last = _dedupe.get(key);
+    if (last !== undefined && now - last < DEDUPE_WINDOW_MS) return;
+    _dedupe.set(key, now);
+    // Dynamic import keeps this module importable from client components
+    // that only need tierAllows/FEATURE_MIN_TIER (the service client reads
+    // server-only env vars).
+    const { createServiceClient } = await import('@/lib/supabase/server');
+    const svc = createServiceClient();
+    await svc.from('tier_gate_events').insert({
+      client_id: evt.clientId,
+      feature: evt.feature,
+      current_tier: evt.currentTier,
+      required_tier: evt.requiredTier,
+      outcome: evt.outcome,
+      surface: 'admin_ui',
+    });
+  } catch (err) {
+    console.warn('[tier-gates] telemetry insert failed:', err);
+  }
+}
+
+/** 3.2 — mode-aware, byte-mirrors the backend twin's semantics: soft →
+ *  telemetry + return normally (never blocks); hard → telemetry + throw the
+ *  typed error. The previous admin version threw UNCONDITIONALLY on a
+ *  tierAllows failure (no blockMode consult, no telemetry) — a latent
+ *  asymmetry that would have made admin surfaces hard-block while the
+ *  backend soft-allowed the same feature under env 'soft'. */
 export function requireTier(
   client: TierGateContext,
   feature: TierFeature
 ): void {
-  if (!tierAllows(client, feature)) {
-    throw new TierNotAllowedError(
+  if (tierAllows(client, feature)) return;
+  const requiredTier = FEATURE_MIN_TIER[feature];
+  const mode = blockMode(feature);
+  if (mode === 'soft') {
+    void logTierGateEvent({
+      clientId: client.id,
       feature,
-      client.subscription_tier,
-      FEATURE_MIN_TIER[feature]
-    );
+      currentTier: client.subscription_tier,
+      requiredTier,
+      outcome: 'soft_skip',
+    });
+    return;
   }
+  void logTierGateEvent({
+    clientId: client.id,
+    feature,
+    currentTier: client.subscription_tier,
+    requiredTier,
+    outcome: 'hard_block',
+  });
+  throw new TierNotAllowedError(
+    feature,
+    client.subscription_tier,
+    requiredTier
+  );
 }
 
 export function isUnsupportedTier(err: unknown): err is TierNotAllowedError {
@@ -227,6 +309,47 @@ export function tierNotAllowedBody(err: TierNotAllowedError): TierNotAllowedBody
     feature: err.feature,
     current_tier: err.currentTier,
     required_tier: err.requiredTier,
+    upgrade_url: '/settings/billing',
+  };
+}
+
+/** 3.2 — single adjudication helper for admin route handlers (the analog of
+ *  the backend's applyTierGate). Replaces the bare
+ *  `if (!tierAllows(...) && blockMode(...) === 'hard')` pattern that emitted
+ *  NO telemetry — admin-side soft-skips and hard-blocks were invisible in
+ *  tier_gate_events, blinding the soft-mode soak.
+ *
+ *  Returns the typed 402 body when the request must be refused (caller
+ *  responds 402 with it), or null when the request proceeds (allowed, or
+ *  below-tier under soft mode — which still logs a soft_skip row). */
+export function gateAdminRoute(
+  client: TierGateContext,
+  feature: TierFeature
+): TierNotAllowedBody | null {
+  if (tierAllows(client, feature)) return null;
+  const requiredTier = FEATURE_MIN_TIER[feature];
+  if (blockMode(feature) === 'soft') {
+    void logTierGateEvent({
+      clientId: client.id,
+      feature,
+      currentTier: client.subscription_tier,
+      requiredTier,
+      outcome: 'soft_skip',
+    });
+    return null;
+  }
+  void logTierGateEvent({
+    clientId: client.id,
+    feature,
+    currentTier: client.subscription_tier,
+    requiredTier,
+    outcome: 'hard_block',
+  });
+  return {
+    error: 'tier_not_allowed',
+    feature,
+    current_tier: client.subscription_tier,
+    required_tier: requiredTier,
     upgrade_url: '/settings/billing',
   };
 }

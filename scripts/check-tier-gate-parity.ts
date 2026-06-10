@@ -79,17 +79,69 @@ try {
 const adminMap = extractMap(adminSrc, ADMIN_PATH);
 const backendMap = extractMap(backendSrc, BACKEND_PATH);
 
-if (adminMap === backendMap) {
-  console.log('[tier-gate-parity] OK — FEATURE_MIN_TIER is byte-identical');
-  process.exit(0);
+// 3.2 — also diff FEATURE_BLOCK_MODE (a soft-in-one-twin / hard-in-the-other
+// mismatch means admin and backend disagree on whether a feature 402s) and
+// the semantic core of tierAllows (status/tier bypass order — the
+// cancelled-before-pilot precedence is load-bearing for the live pilot).
+const BLOCK_MODE_RE =
+  /const FEATURE_BLOCK_MODE:\s*Record<TierFeature,\s*'hard'\s*\|\s*'soft'>\s*=\s*\{([\s\S]*?)\n\};/;
+const TIER_ALLOWS_RE =
+  /export function tierAllows\([\s\S]*?\n\}/;
+
+function extractBlock(
+  source: string,
+  re: RegExp,
+  label: string,
+  path: string
+): string {
+  const m = source.match(re);
+  if (!m) {
+    console.error(`[tier-gate-parity] ${label} block not found in ${path}`);
+    process.exit(2);
+  }
+  return (m[1] ?? m[0])
+    .split('\n')
+    .map((line) => line.replace(/\/\/.*$/, '').trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/,$/, ''))
+    .join('\n');
 }
 
-console.error('[tier-gate-parity] DRIFT — FEATURE_MIN_TIER does not match');
-console.error('--- admin (' + ADMIN_PATH + ') ---');
-console.error(adminMap);
-console.error('--- backend (' + BACKEND_PATH + ') ---');
-console.error(backendMap);
-console.error(
-  '[tier-gate-parity] reconcile both copies to the same set + ordering, then re-run.'
-);
-process.exit(1);
+const checks: Array<[name: string, admin: string, backend: string]> = [
+  ['FEATURE_MIN_TIER', adminMap, backendMap],
+  [
+    'FEATURE_BLOCK_MODE',
+    // sorted like FEATURE_MIN_TIER — order-insensitive
+    extractBlock(adminSrc, BLOCK_MODE_RE, 'FEATURE_BLOCK_MODE', ADMIN_PATH)
+      .split('\n').sort().join('\n'),
+    extractBlock(backendSrc, BLOCK_MODE_RE, 'FEATURE_BLOCK_MODE', BACKEND_PATH)
+      .split('\n').sort().join('\n'),
+  ],
+  [
+    'tierAllows',
+    extractBlock(adminSrc, TIER_ALLOWS_RE, 'tierAllows', ADMIN_PATH),
+    extractBlock(backendSrc, TIER_ALLOWS_RE, 'tierAllows', BACKEND_PATH),
+  ],
+];
+
+let drift = false;
+for (const [name, a, b] of checks) {
+  if (a === b) {
+    console.log(`[tier-gate-parity] OK — ${name} matches`);
+    continue;
+  }
+  drift = true;
+  console.error(`[tier-gate-parity] DRIFT — ${name} does not match`);
+  console.error('--- admin (' + ADMIN_PATH + ') ---');
+  console.error(a);
+  console.error('--- backend (' + BACKEND_PATH + ') ---');
+  console.error(b);
+}
+
+if (drift) {
+  console.error(
+    '[tier-gate-parity] reconcile both copies to the same set + semantics, then re-run.'
+  );
+  process.exit(1);
+}
+process.exit(0);

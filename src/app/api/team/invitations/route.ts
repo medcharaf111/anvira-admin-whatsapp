@@ -9,6 +9,7 @@ import {
   TierNotAllowedError,
   FEATURE_MIN_TIER,
   type TierFeature,
+  gateAdminRoute,
 } from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
@@ -56,18 +57,10 @@ export async function POST(req: NextRequest) {
   else if (body.role === 'viewer') featureChecks.push('role_viewer');
   else if (body.role === 'agent') featureChecks.push('role_agent');
   for (const feature of featureChecks) {
-    if (!tierAllows(client, feature) && blockMode(feature) === 'hard') {
-      return NextResponse.json(
-        tierNotAllowedBody(
-          new TierNotAllowedError(
-            feature,
-            client.subscription_tier,
-            FEATURE_MIN_TIER[feature]
-          )
-        ),
-        { status: 402 }
-      );
-    }
+    // 3.2 — gateAdminRoute logs telemetry (soft_skip AND hard_block) so
+    // the admin surface is visible in tier_gate_events during the soak.
+    const tierBlock = gateAdminRoute(client, feature);
+    if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
   }
 
   const ctx = getInternalContext(client.id);

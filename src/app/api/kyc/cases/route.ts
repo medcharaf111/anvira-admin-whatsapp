@@ -9,6 +9,7 @@ import {
   TierNotAllowedError,
   FEATURE_MIN_TIER,
   blockMode,
+  gateAdminRoute,
 } from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
@@ -39,17 +40,11 @@ export async function GET(req: NextRequest) {
   // (2) tier refusal → 402 (hard) / pass-through (soft). In Phase 1 with
   // TIER_ENFORCEMENT_MODE='soft' the GET still serves an empty list; the
   // hard-mode flip in Phase 4 will return 402 with the upgrade URL.
-  if (!tierAllows(client, 'kyc_workflow') && blockMode('kyc_workflow') === 'hard') {
-    return NextResponse.json(
-      tierNotAllowedBody(
-        new TierNotAllowedError(
-          'kyc_workflow',
-          client.subscription_tier,
-          FEATURE_MIN_TIER.kyc_workflow
-        )
-      ),
-      { status: 402 }
-    );
+  {
+    // 3.2 — gateAdminRoute logs telemetry (soft_skip AND hard_block) so
+    // the admin surface is visible in tier_gate_events during the soak.
+    const tierBlock = gateAdminRoute(client, 'kyc_workflow');
+    if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
   }
   // (3) existing opt-in flag → empty list (kept for back-compat).
   if (!client.kyc_enabled) {
@@ -103,17 +98,11 @@ export async function POST(req: NextRequest) {
   if (client.client_type !== 'real_estate') {
     return NextResponse.json({ error: 'not_real_estate' }, { status: 403 });
   }
-  if (!tierAllows(client, 'kyc_workflow') && blockMode('kyc_workflow') === 'hard') {
-    return NextResponse.json(
-      tierNotAllowedBody(
-        new TierNotAllowedError(
-          'kyc_workflow',
-          client.subscription_tier,
-          FEATURE_MIN_TIER.kyc_workflow
-        )
-      ),
-      { status: 402 }
-    );
+  {
+    // 3.2 — gateAdminRoute logs telemetry (soft_skip AND hard_block) so
+    // the admin surface is visible in tier_gate_events during the soak.
+    const tierBlock = gateAdminRoute(client, 'kyc_workflow');
+    if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
   }
   if (!client.kyc_enabled) {
     return NextResponse.json({ error: 'kyc_disabled' }, { status: 400 });

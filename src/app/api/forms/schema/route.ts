@@ -8,6 +8,7 @@ import {
   tierNotAllowedBody,
   TierNotAllowedError,
   FEATURE_MIN_TIER,
+  gateAdminRoute,
 } from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
@@ -37,17 +38,11 @@ export async function GET(req: NextRequest) {
   }
 
   // SUBSCRIPTION_PLAN.md §5.3 — rera_forms is Brokerage+, "soft → hard at GA".
-  if (!tierAllows(client, 'rera_forms') && blockMode('rera_forms') === 'hard') {
-    return NextResponse.json(
-      tierNotAllowedBody(
-        new TierNotAllowedError(
-          'rera_forms',
-          client.subscription_tier,
-          FEATURE_MIN_TIER.rera_forms
-        )
-      ),
-      { status: 402 }
-    );
+  {
+    // 3.2 — gateAdminRoute logs telemetry (soft_skip AND hard_block) so
+    // the admin surface is visible in tier_gate_events during the soak.
+    const tierBlock = gateAdminRoute(client, 'rera_forms');
+    if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
   }
 
   const type = (new URL(req.url).searchParams.get('type') ?? '').toUpperCase();

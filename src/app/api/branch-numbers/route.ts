@@ -8,6 +8,7 @@ import {
   tierNotAllowedBody,
   TierNotAllowedError,
   FEATURE_MIN_TIER,
+  gateAdminRoute,
 } from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
@@ -104,20 +105,11 @@ export async function POST(req: NextRequest) {
   // PAST the first number; first number is free at every tier. The backend
   // does the final cap check against TIER_MAX_WA_NUMBERS using the actual
   // count from client_numbers, so this is a friendly pre-check only.
-  if (
-    !tierAllows(client, 'multi_branch_numbers') &&
-    blockMode('multi_branch_numbers') === 'hard'
-  ) {
-    return NextResponse.json(
-      tierNotAllowedBody(
-        new TierNotAllowedError(
-          'multi_branch_numbers',
-          client.subscription_tier,
-          FEATURE_MIN_TIER.multi_branch_numbers
-        )
-      ),
-      { status: 402 }
-    );
+  {
+    // 3.2 — gateAdminRoute logs telemetry (soft_skip AND hard_block) so
+    // the admin surface is visible in tier_gate_events during the soak.
+    const tierBlock = gateAdminRoute(client, 'multi_branch_numbers');
+    if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
   }
 
   const backend = process.env.NEXT_PUBLIC_BACKEND_URL;

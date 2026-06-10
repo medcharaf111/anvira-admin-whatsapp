@@ -8,6 +8,7 @@ import {
   tierNotAllowedBody,
   TierNotAllowedError,
   FEATURE_MIN_TIER,
+  gateAdminRoute,
 } from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
@@ -36,17 +37,11 @@ export async function POST(req: NextRequest) {
   // SUBSCRIPTION_PLAN.md §5.3, §16 — kyc_workflow tier precondition so a
   // below-tier tenant can't flip the kyc_enabled toggle even via curl.
   // Phase 1 (soft mode) lets the flip through; Phase 4 returns 402.
-  if (!tierAllows(client, 'kyc_workflow') && blockMode('kyc_workflow') === 'hard') {
-    return NextResponse.json(
-      tierNotAllowedBody(
-        new TierNotAllowedError(
-          'kyc_workflow',
-          client.subscription_tier,
-          FEATURE_MIN_TIER.kyc_workflow
-        )
-      ),
-      { status: 402 }
-    );
+  {
+    // 3.2 — gateAdminRoute logs telemetry (soft_skip AND hard_block) so
+    // the admin surface is visible in tier_gate_events during the soak.
+    const tierBlock = gateAdminRoute(client, 'kyc_workflow');
+    if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
   }
 
   const body = (await req.json().catch(() => null)) as { enabled?: boolean } | null;

@@ -329,6 +329,22 @@ export const POST = withSuperAdmin(async (req, ctx, sa) => {
     return err('rpc_failed', 500, msg);
   }
 
+  // ── 8b. Drop the backend's in-process caches for this tenant ──────
+  //
+  // 3.2 — the orchestrator caches the Client object (subscription_tier,
+  // subscription_status, bot_enabled) for 60s per replica. Without this
+  // nudge, a tier change/suspension propagates to the BOT side only when
+  // that cache expires — confusing exactly when you're watching hard_block
+  // telemetry after a change. Fire-and-forget; same house pattern as the
+  // 7 settings routes.
+  fetch(
+    `${process.env.NEXT_PUBLIC_BACKEND_URL}/internal/settings/invalidate?client=${tenantId}`,
+    {
+      method: 'POST',
+      headers: { 'X-Internal-Secret': process.env.INTERNAL_SHARED_SECRET ?? '' },
+    }
+  ).catch(() => {});
+
   // ── 9. Re-fetch the full TenantDetail payload for the response ────
   //
   // The RPC returns the subscription_tier_changes audit row, not the
