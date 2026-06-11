@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Loader2, UserPlus, X, Crown, Shield, User, Eye } from 'lucide-react';
+import { parseTierBlock, tierBlockMessage } from '@/lib/tier-upgrade';
 
 type Role = 'owner' | 'admin' | 'agent' | 'viewer';
 
@@ -379,12 +380,26 @@ function InviteForm() {
         detail?: string;
       };
       if (!res.ok) {
+        // 3.2 — typed tier 402: render the upgrade message, not a generic
+        // "unknown error" that reads like an outage.
+        const tierBlock = parseTierBlock(res.status, j);
+        if (tierBlock) {
+          toast.error(tierBlockMessage(tierBlock), {
+            action: {
+              label: 'Upgrade',
+              onClick: () => router.push(tierBlock.upgrade_url),
+            },
+          });
+          return;
+        }
         toast.error(
           j.error === 'already_invited'
             ? 'This email already has a pending invitation.'
             : j.error === 'cannot_invite_owner'
               ? 'Only the current owner can transfer ownership.'
-              : `Could not invite (${j.error ?? 'unknown'}${j.detail ? `: ${j.detail}` : ''})`
+              : j.error === 'cap_reached'
+                ? `Seat cap reached${j.detail ? ` — ${j.detail}` : ''}. Upgrade to add more teammates.`
+                : `Could not invite (${j.error ?? 'unknown'}${j.detail ? `: ${j.detail}` : ''})`
         );
         return;
       }

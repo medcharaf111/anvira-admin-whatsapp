@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { logAction } from '@/lib/audit';
+import { gateAdminRoute } from '@/lib/tier-gates';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,6 +108,15 @@ export async function POST(req: NextRequest) {
       { error: 'must_keep_ar_or_en' },
       { status: 400 }
     );
+  }
+
+  // 3.2 — multi_language is Brokerage+ (Team = AR+EN only per the pricing
+  // page). Gate fires only when the operator enables a language BEYOND the
+  // two primaries; soft mode logs telemetry and lets it through.
+  const wantsBeyondPrimaries = enabled.some((l) => l !== 'ar' && l !== 'en');
+  if (wantsBeyondPrimaries) {
+    const tierBlock = gateAdminRoute(client, 'multi_language');
+    if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
   }
 
   const svc = createServiceClient();

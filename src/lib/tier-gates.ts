@@ -41,6 +41,7 @@ export type TierFeature =
   | 'team_invitations'
   | 'audit_log_read'
   | 'sla_alerts'
+  | 'multi_language'
   | 'deep_cdd_workflow'
   | 'risk_scoring'
   | 'audit_pack_export'
@@ -77,6 +78,7 @@ export const FEATURE_MIN_TIER: Record<TierFeature, SubscriptionTier> = {
   team_invitations: 'brokerage',
   role_agent: 'brokerage',
   audit_log_read: 'brokerage',
+  multi_language: 'brokerage', // Team = AR+EN only; 6-language pack is Brokerage+ per pricing page
   kyc_workflow: 'brokerage',
   sanctions_screening: 'brokerage',
   goaml_export: 'brokerage',
@@ -114,6 +116,7 @@ const FEATURE_BLOCK_MODE: Record<TierFeature, 'hard' | 'soft'> = {
   role_agent: 'soft',
   audit_log_read: 'soft',
   sla_alerts: 'soft',
+  multi_language: 'soft', // revenue feature — over-deliver during pilot rather than break threads
 };
 
 export class TierNotAllowedError extends Error {

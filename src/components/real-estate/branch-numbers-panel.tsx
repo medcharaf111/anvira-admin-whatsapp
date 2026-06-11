@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { parseTierBlock, tierBlockMessage } from '@/lib/tier-upgrade';
 import {
   Phone,
   Plus,
@@ -72,7 +73,15 @@ export function BranchNumbersPanel() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        toast.error(`تعذّرت الإضافة: ${j.error ?? 'unknown'}`);
+        // 3.2 — typed tier 402 / counted 409 get specific copy, not 'unknown'.
+        const tierBlock = parseTierBlock(res.status, j);
+        if (tierBlock) {
+          toast.error(tierBlockMessage(tierBlock));
+        } else if (j.error === 'cap_reached') {
+          toast.error(`وصلت حد الأرقام لباقتك${j.detail ? ` — ${j.detail}` : ''}. ترقَّ لإضافة المزيد.`);
+        } else {
+          toast.error(`تعذّرت الإضافة: ${j.error ?? 'unknown'}`);
+        }
         return false;
       }
       toast.success('تم إضافة الرقم');
