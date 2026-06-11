@@ -3,14 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { callInternal, getInternalContext } from '@/lib/internal-api';
 import { logAction } from '@/lib/audit';
-import {
-  tierAllows,
-  blockMode,
-  tierNotAllowedBody,
-  TierNotAllowedError,
-  FEATURE_MIN_TIER,
-  gateAdminRoute,
-} from '@/lib/tier-gates';
+import { gateAdminRoute } from '@/lib/tier-gates-server';
 
 export const dynamic = 'force-dynamic';
 

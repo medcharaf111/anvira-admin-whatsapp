@@ -2,15 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { callInternal, getInternalContext } from '@/lib/internal-api';
-import {
-  tierAllows,
-  blockMode,
-  tierNotAllowedBody,
-  TierNotAllowedError,
-  FEATURE_MIN_TIER,
-  type TierFeature,
-  gateAdminRoute,
-} from '@/lib/tier-gates';
+import { type TierFeature } from '@/lib/tier-gates';
+import { gateAdminRoute } from '@/lib/tier-gates-server';
 
 export const dynamic = 'force-dynamic';
 

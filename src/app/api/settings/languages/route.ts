@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getCurrentClient } from '@/lib/client';
 import { logAction } from '@/lib/audit';
-import { gateAdminRoute } from '@/lib/tier-gates';
+import { gateAdminRoute } from '@/lib/tier-gates-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,12 +111,27 @@ export async function POST(req: NextRequest) {
   }
 
   // 3.2 — multi_language is Brokerage+ (Team = AR+EN only per the pricing
-  // page). Gate fires only when the operator enables a language BEYOND the
-  // two primaries; soft mode logs telemetry and lets it through.
-  const wantsBeyondPrimaries = enabled.some((l) => l !== 'ar' && l !== 'en');
-  if (wantsBeyondPrimaries) {
-    const tierBlock = gateAdminRoute(client, 'multi_language');
-    if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
+  // page). Gate on the DELTA: only languages being newly ADDED beyond the
+  // two primaries trigger it — a downgraded tenant must always be able to
+  // REMOVE extra languages (shrinking toward their entitlement), otherwise
+  // hard mode would lock them in violation. Soft mode logs + lets through.
+  const hasExtraLanguages = enabled.some((l) => l !== 'ar' && l !== 'en');
+  if (hasExtraLanguages) {
+    const { data: cur } = await supabase
+      .from('dashboard_clients')
+      .select('enabled_languages')
+      .eq('id', client.id)
+      .maybeSingle();
+    const current = Array.isArray(cur?.enabled_languages)
+      ? (cur.enabled_languages as string[])
+      : ['ar', 'en'];
+    const newlyAdded = enabled.filter(
+      (l) => l !== 'ar' && l !== 'en' && !current.includes(l)
+    );
+    if (newlyAdded.length > 0) {
+      const tierBlock = gateAdminRoute(client, 'multi_language');
+      if (tierBlock) return NextResponse.json(tierBlock, { status: 402 });
+    }
   }
 
   const svc = createServiceClient();
