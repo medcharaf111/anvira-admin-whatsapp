@@ -1,0 +1,66 @@
+# ----------------------------------------------------------------------------
+# Admin CI (Tier 4.2) — typecheck + REAL `next build` + tier-gate parity.
+# ----------------------------------------------------------------------------
+# Motivation: commit 949f6a0 shipped with tsc green but `next build` broken
+# (a server-only import reachable from the client bundle). Only a real build
+# catches that class of failure, so CI runs one on every push/PR.
+#
+# The tier-gate parity step needs the sibling anvira-backend repo. Cross-repo
+# checkout of a private repo requires a PAT: add a repo secret named
+# BACKEND_REPO_TOKEN (fine-grained, contents:read on anvira-backend). Without
+# it the parity step is SKIPPED with a visible warning — typecheck and build
+# still gate the merge.
+# ----------------------------------------------------------------------------
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # Dummy publics so next build's module-load paths don't throw. No
+      # secrets; nothing in the build talks to a real service.
+      NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:3001
+      SUPABASE_SERVICE_ROLE_KEY: dummy
+      INTERNAL_SHARED_SECRET: dummy
+      TIER_ENFORCEMENT_MODE: soft
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: anvira-admin-whatsapp
+      - name: Checkout backend (for tier-gate parity)
+        id: backend
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: medcharaf111/anvira-backend
+          token: ${{ secrets.BACKEND_REPO_TOKEN || github.token }}
+          path: anvira-backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: anvira-admin-whatsapp/package-lock.json
+      - run: npm ci
+        working-directory: anvira-admin-whatsapp
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: anvira-admin-whatsapp
+      - name: Tier-gate parity (admin twin vs backend canonical)
+        if: steps.backend.outcome == 'success'
+        # --yes: tsx is not a local devDependency here; npx must not prompt in CI
+        run: npx --yes tsx scripts/check-tier-gate-parity.ts
+        working-directory: anvira-admin-whatsapp
+      - name: Parity skipped warning
+        if: steps.backend.outcome != 'success'
+        run: echo "::warning::tier-gate parity SKIPPED — add BACKEND_REPO_TOKEN secret (contents:read on anvira-backend) to enable cross-repo checkout"
+      - name: Next build (catches server-only imports in client bundles)
+        run: npm run build
+        working-directory: anvira-admin-whatsapp
